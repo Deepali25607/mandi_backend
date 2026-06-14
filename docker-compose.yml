@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mandi-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mandi
+      POSTGRES_PASSWORD: mandi
+      POSTGRES_DB: mandi_erp
+    ports:
+      - "5435:5432"
+    volumes:
+      - mandi_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mandi -d mandi_erp"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mandi_pgdata:
