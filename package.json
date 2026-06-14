@@ -12,6 +12,7 @@
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "seed": "ts-node -r tsconfig-paths/register src/database/seed.ts",
+    "seed:prod": "node dist/database/seed.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
