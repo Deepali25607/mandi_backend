@@ -12,6 +12,22 @@ const DEFAULTS: { key: string; label: string; value: string }[] = [
   { key: 'allow_self_registration', label: 'Allow organization self-registration', value: 'true' },
 ];
 
+/** Look of the public login / register / recovery screens (Super-Admin managed). */
+export interface PlatformBranding {
+  appName: string;
+  tagline: string;
+  primaryColor: string;
+  background: { type: 'gradient' | 'color' | 'image'; value: string };
+}
+
+const BRANDING_KEY = 'branding';
+export const DEFAULT_BRANDING: PlatformBranding = {
+  appName: 'Mandi ERP',
+  tagline: 'Sabzi Mandi Accounting & Inventory',
+  primaryColor: '#1f8a4c',
+  background: { type: 'gradient', value: 'linear-gradient(160deg, #1f8a4c 0%, #13652f 60%, #0e4a23 100%)' },
+};
+
 @Injectable()
 export class PlatformSettingsService {
   constructor(
@@ -24,9 +40,30 @@ export class PlatformSettingsService {
     const missing = DEFAULTS.filter((d) => !known.has(d.key));
     if (missing.length) {
       await this.repo.save(missing.map((d) => this.repo.create(d)));
-      return this.repo.find({ order: { key: 'ASC' } });
     }
-    return existing.sort((a, b) => a.key.localeCompare(b.key));
+    // `branding` is a JSON blob edited on its own screen — keep it out of the
+    // plain key/value settings list.
+    const all = missing.length ? await this.repo.find() : existing;
+    return all.filter((s) => s.key !== BRANDING_KEY).sort((a, b) => a.key.localeCompare(b.key));
+  }
+
+  /** Login-screen branding, falling back to the built-in default. */
+  async getBranding(): Promise<PlatformBranding> {
+    const s = await this.repo.findOne({ where: { key: BRANDING_KEY } });
+    if (!s?.value) return DEFAULT_BRANDING;
+    try {
+      return { ...DEFAULT_BRANDING, ...(JSON.parse(s.value) as Partial<PlatformBranding>) };
+    } catch {
+      return DEFAULT_BRANDING;
+    }
+  }
+
+  async setBranding(config: PlatformBranding): Promise<PlatformBranding> {
+    let s = await this.repo.findOne({ where: { key: BRANDING_KEY } });
+    if (!s) s = this.repo.create({ key: BRANDING_KEY, label: 'Login screen branding' });
+    s.value = JSON.stringify(config);
+    await this.repo.save(s);
+    return config;
   }
 
   async update(key: string, value: string): Promise<PlatformSetting> {

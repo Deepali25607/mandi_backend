@@ -2,14 +2,19 @@ import {
   IsArray,
   IsBoolean,
   IsEnum,
+  IsHexColor,
+  IsIn,
   IsInt,
   IsNumber,
   IsOptional,
   IsString,
   Matches,
+  MaxLength,
   Min,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { PartialType } from '@nestjs/mapped-types';
 import { BillingCycle, PlatformFeature, SubscriptionStatus } from '@/common/enums/feature.enum';
 
@@ -93,4 +98,32 @@ export class UpdateOrganizationAdminDto {
 export class UpdateSettingDto {
   @IsString()
   value: string;
+}
+
+class BrandingBackgroundDto {
+  @IsIn(['gradient', 'color', 'image'])
+  type: 'gradient' | 'color' | 'image';
+
+  // Hex / CSS gradient / base64 data URL (≤ ~3 MB inlined image, dev-only).
+  @IsString()
+  @MaxLength(4_000_000)
+  value: string;
+}
+
+/** Super Admin editing the public login-screen branding. */
+export class UpdateBrandingDto {
+  @IsString()
+  @MaxLength(60)
+  appName: string;
+
+  @IsString()
+  @MaxLength(120)
+  tagline: string;
+
+  @IsHexColor()
+  primaryColor: string;
+
+  @ValidateNested()
+  @Type(() => BrandingBackgroundDto)
+  background: BrandingBackgroundDto;
 }

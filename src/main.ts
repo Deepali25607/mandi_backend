@@ -24,9 +24,10 @@ async function bootstrap() {
   );
 
   const port = Number(config.get('PORT', 5000));
-  await app.listen(port);
+  // Bind to 0.0.0.0 so hosting platforms (Render, etc.) can detect the open port.
+  await app.listen(port, '0.0.0.0');
   // eslint-disable-next-line no-console
-  console.log(`Mandi ERP API listening on http://localhost:${port}/api`);
+  console.log(`Mandi ERP API listening on port ${port} (/api)`);
 }
 
 bootstrap();

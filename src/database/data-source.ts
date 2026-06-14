@@ -25,14 +25,26 @@ import { PlatformSetting } from '@/modules/platform/platform-setting.entity';
 
 dotenv.config();
 
+// Connection: prefer DATABASE_URL (managed Postgres, e.g. Render) with SSL,
+// otherwise fall back to the discrete DB_* vars used for local Docker.
+const url = process.env.DATABASE_URL;
+const sslOn = (process.env.DB_SSL ?? (url ? 'true' : 'false')) === 'true';
+const ssl = sslOn ? { rejectUnauthorized: false } : undefined;
+const connection = url
+  ? { url }
+  : {
+      host: process.env.DB_HOST ?? 'localhost',
+      port: Number(process.env.DB_PORT ?? 5432),
+      username: process.env.DB_USER ?? 'mandi',
+      password: process.env.DB_PASSWORD ?? 'mandi',
+      database: process.env.DB_NAME ?? 'mandi_erp',
+    };
+
 /** Standalone DataSource for CLI tools (seed/migrations) outside the Nest runtime. */
 export const AppDataSource = new DataSource({
   type: 'postgres',
-  host: process.env.DB_HOST ?? 'localhost',
-  port: Number(process.env.DB_PORT ?? 5432),
-  username: process.env.DB_USER ?? 'mandi',
-  password: process.env.DB_PASSWORD ?? 'mandi',
-  database: process.env.DB_NAME ?? 'mandi_erp',
+  ...connection,
+  ...(ssl ? { ssl, extra: { ssl } } : {}),
   entities: [
     Organization,
     Branch,

@@ -3,7 +3,7 @@ import { Roles } from '@/common/decorators/roles.decorator';
 import { Role } from '@/common/enums/role.enum';
 import { PlatformService } from './platform.service';
 import { PlatformSettingsService } from './platform-settings.service';
-import { UpdateOrganizationAdminDto, UpdateSettingDto } from './dto/platform.dto';
+import { UpdateBrandingDto, UpdateOrganizationAdminDto, UpdateSettingDto } from './dto/platform.dto';
 
 /** Super Admin platform console. Org operational data is NOT exposed here. */
 @Roles(Role.SUPER_ADMIN)
@@ -42,5 +42,16 @@ export class PlatformController {
   @Patch('settings/:key')
   updateSetting(@Param('key') key: string, @Body() dto: UpdateSettingDto) {
     return this.settings.update(key, dto.value);
+  }
+
+  // --- Login-screen branding (background, brand colour, app name) ---
+  @Get('branding')
+  getBranding() {
+    return this.settings.getBranding();
+  }
+
+  @Patch('branding')
+  updateBranding(@Body() dto: UpdateBrandingDto) {
+    return this.settings.setBranding(dto);
   }
 }
