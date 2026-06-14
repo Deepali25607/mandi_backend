@@ -1,10 +1,16 @@
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // Disable the built-in body parser so we can raise the size limit — base64
+  // image uploads (login background, org wallpaper) exceed the 100 kB default.
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
+  app.use(json({ limit: '10mb' }));
+  app.use(urlencoded({ extended: true, limit: '10mb' }));
+
   const config = app.get(ConfigService);
 
   // All routes are served under /api so the frontend has a clean namespace.
