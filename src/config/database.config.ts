@@ -28,15 +28,31 @@ export const buildDatabaseConfig = (
   };
 
   if (url) {
+    // Log the target host (never the credentials) so deploy logs confirm where we connect.
+    const host = safeHost(url);
+    // eslint-disable-next-line no-console
+    console.log(`[DB] Using DATABASE_URL → host=${host}, ssl=${sslOn}`);
     return { ...common, url };
   }
 
+  const host = config.get<string>('DB_HOST', 'localhost');
+  // eslint-disable-next-line no-console
+  console.log(`[DB] No DATABASE_URL set — falling back to host=${host}, ssl=${sslOn}`);
   return {
     ...common,
-    host: config.get<string>('DB_HOST', 'localhost'),
+    host,
     port: Number(config.get('DB_PORT', 5432)),
     username: config.get<string>('DB_USER', 'mandi'),
     password: config.get<string>('DB_PASSWORD', 'mandi'),
     database: config.get<string>('DB_NAME', 'mandi_erp'),
   };
 };
+
+/** Extract just the host from a connection URL for safe logging. */
+function safeHost(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return 'unparseable';
+  }
+}
