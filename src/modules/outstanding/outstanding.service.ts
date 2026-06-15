@@ -101,20 +101,23 @@ export class OutstandingService {
         const adjustments = adjMap.get(s.id) ?? 0;
         const salesNet = salesNetMap.get(s.id) ?? 0;
         const billedSalesNet = billedSalesNetMap.get(s.id) ?? 0;
+        const unbilled = round2(salesNet - billedSalesNet);
         return {
           supplierId: s.id,
           code: s.code,
           name: s.name,
           village: s.village,
           opening,
-          // Dues are recognised when a bill is finalised (BRD Module 6),
-          // plus signed rate/weight adjustments (BRD Module 5).
+          // The supplier is owed their sales net as soon as goods are sold:
+          // `billed` = finalised settlement bills (net payable, after labour/
+          // crate/other deductions), `unbilled` = sales net not yet billed.
+          // Both count toward what we owe; plus signed rate/weight adjustments.
           billed: round2(billed),
           adjustments: round2(adjustments),
           paid: round2(paid),
-          balance: round2(opening + billed + adjustments - paid),
+          balance: round2(opening + billed + unbilled + adjustments - paid),
           salesNet: round2(salesNet),
-          unbilled: round2(salesNet - billedSalesNet),
+          unbilled,
         };
       })
       .filter((r) => Math.abs(r.balance) > 0.01 || Math.abs(r.unbilled) > 0.01)
