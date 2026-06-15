@@ -40,6 +40,11 @@ export class CreateArrivalDto {
   vehicleNumber?: string;
 
   @IsOptional()
+  @IsNumber()
+  @Min(0)
+  transportCharges?: number;
+
+  @IsOptional()
   @IsString()
   notes?: string;
 

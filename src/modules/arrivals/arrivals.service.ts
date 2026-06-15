@@ -55,6 +55,7 @@ export class ArrivalsService {
         date: dto.date,
         supplierId: dto.supplierId,
         vehicleNumber: dto.vehicleNumber,
+        transportCharges: dto.transportCharges ?? 0,
         notes: dto.notes,
         createdByUserId: user.id,
       });

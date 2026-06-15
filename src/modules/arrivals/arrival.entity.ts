@@ -26,6 +26,10 @@ export class Arrival extends BaseEntity {
   @Column({ name: 'vehicle_number', nullable: true })
   vehicleNumber?: string;
 
+  // Freight/transport paid for this arrival (bhada), captured at entry.
+  @Column({ name: 'transport_charges', type: 'numeric', precision: 12, scale: 2, default: 0, transformer: NumericTransformer })
+  transportCharges: number;
+
   @Column({ name: 'created_by_user_id', nullable: true })
   createdByUserId?: string;
 
