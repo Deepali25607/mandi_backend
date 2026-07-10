@@ -28,6 +28,7 @@ import { BranchesModule } from './modules/branches/branches.module';
 import { PlatformModule } from './modules/platform/platform.module';
 import { BackupModule } from './modules/backup/backup.module';
 import { FeatureGuard } from './common/guards/feature.guard';
+import { SubscriptionLockGuard } from './common/guards/subscription-lock.guard';
 import { Organization } from './modules/organizations/organization.entity';
 import { Branch } from './modules/branches/branch.entity';
 
@@ -64,9 +65,11 @@ import { Branch } from './modules/branches/branch.entity';
   ],
   controllers: [AppController],
   providers: [
-    // JWT auth runs first (global), then role checks, then subscription feature checks.
+    // JWT auth runs first (global), then role checks, then the subscription lock
+    // (read-only when trial/subscription lapsed), then feature-flag checks.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_GUARD, useClass: SubscriptionLockGuard },
     { provide: APP_GUARD, useClass: FeatureGuard },
   ],
 })

@@ -11,6 +11,12 @@ export interface OrgSubscriptionContext {
   planName: string | null;
   status: SubscriptionStatus | null;
   renewalDate: string | null;
+  /**
+   * True when the trial/subscription has lapsed (expired/suspended/cancelled, or
+   * a trial/active plan whose renewal date has passed). A locked org is put into
+   * a read-only state by SubscriptionLockGuard until payment is confirmed.
+   */
+  locked: boolean;
   features: PlatformFeature[];
 }
 
@@ -27,14 +33,23 @@ export class SubscriptionService {
   async resolveContext(organizationId: string | null): Promise<OrgSubscriptionContext> {
     if (!organizationId) {
       // Platform-level principal (Super Admin) — no tenant subscription.
-      return { organizationActive: true, planId: null, planName: null, status: null, renewalDate: null, features: [] };
+      return { organizationActive: true, planId: null, planName: null, status: null, renewalDate: null, locked: false, features: [] };
     }
     const org = await this.orgs.findOne({ where: { id: organizationId }, relations: { plan: true } });
     if (!org) {
-      return { organizationActive: false, planId: null, planName: null, status: null, renewalDate: null, features: [] };
+      return { organizationActive: false, planId: null, planName: null, status: null, renewalDate: null, locked: true, features: [] };
     }
-    // Suspended/expired/cancelled subscriptions expose no plan features.
-    const entitled = org.subscriptionStatus === SubscriptionStatus.ACTIVE || org.subscriptionStatus === SubscriptionStatus.TRIAL;
+    // A trial or active plan is entitled only until its renewal date passes.
+    // ISO date strings ("YYYY-MM-DD") compare chronologically as plain strings.
+    const today = new Date().toISOString().slice(0, 10);
+    const expiredByDate = !!org.renewalDate && org.renewalDate < today;
+    const statusOk =
+      org.subscriptionStatus === SubscriptionStatus.ACTIVE ||
+      org.subscriptionStatus === SubscriptionStatus.TRIAL;
+    const entitled = statusOk && !expiredByDate;
+    // Locked = read-only. `organizationActive` (org.isActive) stays a separate,
+    // harder switch used to block LOGIN entirely; expiry only makes it read-only.
+    const locked = !org.isActive || !entitled;
     const features = entitled && org.plan?.isActive ? (org.plan.features ?? []) : [];
     return {
       organizationActive: org.isActive,
@@ -42,6 +57,7 @@ export class SubscriptionService {
       planName: org.plan?.name ?? null,
       status: org.subscriptionStatus,
       renewalDate: org.renewalDate,
+      locked,
       features,
     };
   }

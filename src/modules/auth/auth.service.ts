@@ -20,6 +20,7 @@ import { Branch } from '@/modules/branches/branch.entity';
 import { User } from '@/modules/users/user.entity';
 import { PlansService } from '@/modules/platform/plans.service';
 import { SubscriptionService } from '@/modules/platform/subscription.service';
+import { PlatformSettingsService } from '@/modules/platform/platform-settings.service';
 import { SubscriptionStatus } from '@/common/enums/feature.enum';
 import { JwtPayload } from './strategies/jwt.strategy';
 import {
@@ -39,6 +40,7 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly plans: PlansService,
     private readonly subscriptions: SubscriptionService,
+    private readonly settings: PlatformSettingsService,
   ) {}
 
   /** Username + password login. */
@@ -73,9 +75,10 @@ export class AuthService {
     let plan = dto.planId ? await this.plans.findOne(dto.planId).catch(() => null) : null;
     if (!plan) plan = await this.plans.findDefault();
 
+    const trialDays = await this.settings.getTrialDays();
     const today = new Date();
     const trialEnd = new Date(today);
-    trialEnd.setDate(trialEnd.getDate() + 14);
+    trialEnd.setDate(trialEnd.getDate() + trialDays);
     const toDate = (d: Date) => d.toISOString().slice(0, 10);
 
     const org = await this.orgs.save(
@@ -192,6 +195,7 @@ export class AuthService {
           planName: ctx.planName,
           status: ctx.status,
           renewalDate: ctx.renewalDate,
+          locked: ctx.locked,
         },
       },
     };

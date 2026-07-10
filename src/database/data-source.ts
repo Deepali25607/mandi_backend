@@ -21,6 +21,7 @@ import { Adjustment } from '@/modules/adjustments/adjustment.entity';
 import { Challan } from '@/modules/challans/challan.entity';
 import { ChallanLine } from '@/modules/challans/challan-line.entity';
 import { SubscriptionPlan } from '@/modules/platform/subscription-plan.entity';
+import { SubscriptionPayment } from '@/modules/platform/subscription-payment.entity';
 import { PlatformSetting } from '@/modules/platform/platform-setting.entity';
 
 dotenv.config();
@@ -66,6 +67,7 @@ export const AppDataSource = new DataSource({
     Challan,
     ChallanLine,
     SubscriptionPlan,
+    SubscriptionPayment,
     PlatformSetting,
   ],
   synchronize: true,

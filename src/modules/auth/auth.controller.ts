@@ -4,6 +4,7 @@ import {
   CurrentUser,
 } from '@/common/decorators/current-user.decorator';
 import { Public } from '@/common/decorators/public.decorator';
+import { AllowWhenLocked } from '@/common/decorators/allow-when-locked.decorator';
 import { ROLE_LABELS } from '@/common/enums/role.enum';
 import { AuthService } from './auth.service';
 import {
@@ -44,12 +45,14 @@ export class AuthController {
     return this.authService.recover(dto);
   }
 
+  @AllowWhenLocked()
   @Post('change-password')
   @HttpCode(200)
   changePassword(@CurrentUser('id') userId: string, @Body() dto: ChangePasswordDto) {
     return this.authService.changePassword(userId, dto);
   }
 
+  @AllowWhenLocked()
   @Post('security-question')
   @HttpCode(200)
   setSecurityQuestion(@CurrentUser('id') userId: string, @Body() dto: SecurityQuestionDto) {

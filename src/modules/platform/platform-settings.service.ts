@@ -10,6 +10,15 @@ const DEFAULTS: { key: string; label: string; value: string }[] = [
   { key: 'support_mobile', label: 'Support mobile', value: '1800-000-000' },
   { key: 'trial_days', label: 'Default trial length (days)', value: '14' },
   { key: 'allow_self_registration', label: 'Allow organization self-registration', value: 'true' },
+  // Manual (offline) subscription payment details shown to tenants on the
+  // "Subscribe / Pay" screen — there is no online payment gateway.
+  { key: 'payment_upi', label: 'Payment UPI ID', value: 'mandierp@upi' },
+  { key: 'payment_bank', label: 'Payment bank details', value: 'A/c 000000000000 · IFSC XXXX0000000 · Mandi ERP' },
+  {
+    key: 'payment_instructions',
+    label: 'Payment instructions (shown to tenants)',
+    value: 'Pay the amount via UPI or bank transfer, then submit the transaction reference below. Your subscription is activated once the platform team verifies the payment.',
+  },
 ];
 
 /** Look of the public login / register / recovery screens (Super-Admin managed). */
@@ -64,6 +73,20 @@ export class PlatformSettingsService {
     s.value = JSON.stringify(config);
     await this.repo.save(s);
     return config;
+  }
+
+  /** Read a single setting's value, falling back to its built-in default. */
+  async getValue(key: string): Promise<string | null> {
+    const s = await this.repo.findOne({ where: { key } });
+    if (s?.value != null) return s.value;
+    return DEFAULTS.find((d) => d.key === key)?.value ?? null;
+  }
+
+  /** Default trial length in days (from the `trial_days` setting; fallback 14). */
+  async getTrialDays(): Promise<number> {
+    const raw = await this.getValue('trial_days');
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 14;
   }
 
   async update(key: string, value: string): Promise<PlatformSetting> {

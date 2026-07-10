@@ -20,6 +20,8 @@ export interface AuthUser {
     planName: string | null;
     status: SubscriptionStatus | null;
     renewalDate: string | null;
+    /** True when the trial/subscription has lapsed (read-only lock in effect). */
+    locked: boolean;
   };
 }
 

@@ -54,6 +54,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         planName: ctx.planName,
         status: ctx.status,
         renewalDate: ctx.renewalDate,
+        locked: ctx.locked,
       },
     };
   }
