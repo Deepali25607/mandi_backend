@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import {
   AuthUser,
   CurrentUser,
@@ -6,7 +6,7 @@ import {
 import { Roles } from '@/common/decorators/roles.decorator';
 import { Role } from '@/common/enums/role.enum';
 import { ArrivalsService } from './arrivals.service';
-import { CreateArrivalDto } from './dto/arrival.dto';
+import { CreateArrivalDto, UpdateArrivalDto } from './dto/arrival.dto';
 
 @Controller('arrivals')
 export class ArrivalsController {
@@ -22,12 +22,22 @@ export class ArrivalsController {
 
   @Get(':id')
   findOne(@CurrentUser('organizationId') orgId: string, @Param('id') id: string) {
-    return this.arrivals.findOne(orgId, id);
+    return this.arrivals.findOneWithLock(orgId, id);
   }
 
   @Roles(Role.PURCHASE_OPERATOR, Role.ACCOUNTANT)
   @Post()
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateArrivalDto) {
     return this.arrivals.create(user, dto);
+  }
+
+  @Roles(Role.PURCHASE_OPERATOR, Role.ACCOUNTANT)
+  @Patch(':id')
+  update(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateArrivalDto,
+  ) {
+    return this.arrivals.update(user, id, dto);
   }
 }

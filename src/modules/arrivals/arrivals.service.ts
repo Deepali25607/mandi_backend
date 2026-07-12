@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { AuthUser } from '@/common/decorators/current-user.decorator';
@@ -6,7 +6,16 @@ import { LotStatus } from '@/common/enums/domain.enum';
 import { StockLot } from '@/modules/inventory/stock-lot.entity';
 import { Arrival } from './arrival.entity';
 import { ArrivalLine } from './arrival-line.entity';
-import { CreateArrivalDto } from './dto/arrival.dto';
+import { CreateArrivalDto, UpdateArrivalDto } from './dto/arrival.dto';
+
+/** A lot is "used" once anything (a sale/challan) has drawn it down. */
+function lotIsUsed(l: StockLot): boolean {
+  return (
+    l.status !== LotStatus.ACTIVE ||
+    l.weightAvailable < l.weightArrived - 0.001 ||
+    l.qtyAvailable < l.qtyArrived - 0.001
+  );
+}
 
 @Injectable()
 export class ArrivalsService {
@@ -33,6 +42,22 @@ export class ArrivalsService {
     return arrival;
   }
 
+  /** Arrival detail plus whether its line items are locked from editing. */
+  async findOneWithLock(organizationId: string, id: string) {
+    const arrival = await this.findOne(organizationId, id);
+    const lots = await this.dataSource
+      .getRepository(StockLot)
+      .find({ where: { arrivalId: id, organizationId } });
+    const locked = lots.some(lotIsUsed);
+    return {
+      ...arrival,
+      linesLocked: locked,
+      lockReason: locked
+        ? 'Stock from this arrival has already been sold or transferred, so items and supplier cannot be changed. Header details can still be edited.'
+        : null,
+    };
+  }
+
   /**
    * Creates an arrival + its lines, and spawns one stock lot per line.
    * All in a single transaction so stock and the arrival stay consistent.
@@ -43,78 +68,189 @@ export class ArrivalsService {
 
     const arrivalId = await this.dataSource.transaction(async (manager) => {
       const arrivalNumber = await this.nextArrivalNumber(manager, organizationId);
-
-      let totalQuantity = 0;
-      let totalWeight = 0;
-      let totalValue = 0;
-
-      const arrival = manager.create(Arrival, {
-        organizationId,
-        branchId,
-        arrivalNumber,
-        date: dto.date,
-        supplierId: dto.supplierId,
-        vehicleNumber: dto.vehicleNumber,
-        transportCharges: dto.transportCharges ?? 0,
-        notes: dto.notes,
-        createdByUserId: user.id,
-      });
-      const savedArrival = await manager.save(arrival);
-
-      const lines: ArrivalLine[] = [];
-      let index = 1;
-      for (const lineDto of dto.lines) {
-        const lotNumber = `${arrivalNumber}-L${index}`;
-        const amount = round2(lineDto.weight * lineDto.rate);
-
-        lines.push(
-          manager.create(ArrivalLine, {
-            arrivalId: savedArrival.id,
-            itemId: lineDto.itemId,
-            lotNumber,
-            quantity: lineDto.quantity,
-            weight: lineDto.weight,
-            rate: lineDto.rate,
-            amount,
-          }),
-        );
-
-        // One lot per line, fully available on creation.
-        await manager.save(
-          manager.create(StockLot, {
-            organizationId,
-            branchId,
-            lotNumber,
-            itemId: lineDto.itemId,
-            supplierId: dto.supplierId,
-            arrivalId: savedArrival.id,
-            rate: lineDto.rate,
-            qtyArrived: lineDto.quantity,
-            weightArrived: lineDto.weight,
-            qtyAvailable: lineDto.quantity,
-            weightAvailable: lineDto.weight,
-            status: LotStatus.ACTIVE,
-            date: dto.date,
-          }),
-        );
-
-        totalQuantity += lineDto.quantity;
-        totalWeight += lineDto.weight;
-        totalValue += amount;
-        index += 1;
-      }
-
-      await manager.save(lines);
-      savedArrival.totalQuantity = round2(totalQuantity);
-      savedArrival.totalWeight = round2(totalWeight);
-      savedArrival.totalValue = round2(totalValue);
-      await manager.save(savedArrival);
-
-      return savedArrival.id;
+      const arrival = await manager.save(
+        manager.create(Arrival, {
+          organizationId,
+          branchId,
+          arrivalNumber,
+          date: dto.date,
+          supplierId: dto.supplierId,
+          vehicleNumber: dto.vehicleNumber,
+          transportCharges: dto.transportCharges ?? 0,
+          notes: dto.notes,
+          createdByUserId: user.id,
+        }),
+      );
+      const totals = await this.spawnLinesAndLots(
+        manager,
+        { id: arrival.id, organizationId, branchId },
+        dto.supplierId,
+        dto.date,
+        dto.lines,
+      );
+      await manager.update(Arrival, { id: arrival.id }, totals);
+      return arrival.id;
     });
 
     // Re-read after commit so relations are populated from a fresh query.
     return this.findOne(organizationId, arrivalId);
+  }
+
+  /**
+   * Safe edit. Header fields (date/vehicle/transport/notes) are always editable.
+   * Supplier + line items may only change while every lot from this arrival is
+   * still untouched (nothing sold/transferred); otherwise a 409 is thrown and
+   * only the header is updated.
+   */
+  async update(user: AuthUser, id: string, dto: UpdateArrivalDto): Promise<Arrival> {
+    const organizationId = user.organizationId!;
+
+    await this.dataSource.transaction(async (manager) => {
+      const arrival = await manager.findOne(Arrival, {
+        where: { id, organizationId },
+        relations: { lines: true },
+      });
+      if (!arrival) throw new NotFoundException('Arrival not found');
+
+      const lots = await manager.find(StockLot, { where: { arrivalId: id, organizationId } });
+      const used = lots.some(lotIsUsed);
+
+      const wantsStructural =
+        dto.lines !== undefined ||
+        (dto.supplierId !== undefined && dto.supplierId !== arrival.supplierId);
+      if (wantsStructural && used) {
+        throw new ConflictException(
+          'This arrival cannot be edited: stock from it has already been sold or transferred. Reverse those entries first.',
+        );
+      }
+
+      // Scalar patch persisted with a plain UPDATE (never re-saving the loaded
+      // entity, so the lines relation is not touched/cascaded).
+      const patch: Partial<Arrival> = {};
+      if (dto.date !== undefined) patch.date = dto.date;
+      if (dto.vehicleNumber !== undefined) patch.vehicleNumber = dto.vehicleNumber;
+      if (dto.transportCharges !== undefined) patch.transportCharges = dto.transportCharges;
+      if (dto.notes !== undefined) patch.notes = dto.notes;
+
+      if (wantsStructural) {
+        // Untouched → safe to rebuild lines + lots from scratch.
+        const supplierId = dto.supplierId ?? arrival.supplierId;
+        const date = patch.date ?? arrival.date;
+        const linesInput = (dto.lines ?? arrival.lines).map((l) => ({
+          itemId: l.itemId,
+          quantity: l.quantity,
+          weight: l.weight,
+          rate: l.rate,
+        }));
+        await manager.delete(ArrivalLine, { arrivalId: id });
+        await manager.delete(StockLot, { arrivalId: id });
+        const totals = await this.spawnLinesAndLots(
+          manager,
+          { id, organizationId, branchId: arrival.branchId },
+          supplierId,
+          date,
+          linesInput,
+        );
+        patch.supplierId = supplierId;
+        Object.assign(patch, totals);
+      } else if (dto.date !== undefined) {
+        // Header-only: keep lots in sync with a date change.
+        await manager.update(StockLot, { arrivalId: id, organizationId }, { date: patch.date });
+      }
+
+      if (Object.keys(patch).length > 0) {
+        await manager.update(Arrival, { id }, patch);
+      }
+    });
+
+    return this.findOne(organizationId, id);
+  }
+
+  /**
+   * Builds arrival lines and one stock lot per line for the given arrival, and
+   * returns the rolled-up totals. Does NOT save the arrival header (the caller
+   * persists scalar fields via manager.update to avoid relation cascades).
+   * Shared by create and (structural) update.
+   */
+  private async spawnLinesAndLots(
+    manager: EntityManager,
+    arrival: { id: string; organizationId: string; branchId: string },
+    supplierId: string,
+    date: string,
+    linesInput: { itemId: string; quantity: number; weight: number; rate: number }[],
+  ): Promise<{ totalQuantity: number; totalWeight: number; totalValue: number }> {
+    const organizationId = arrival.organizationId;
+    // Lot number = <qty>-<seq 001..>: the quantity entered for the line plus an
+    // org-wide running number (max+1, never reused) so lots stay unique even when
+    // two lines share the same quantity.
+    let seqBase = await this.maxLotSeq(manager, organizationId);
+
+    let totalQuantity = 0;
+    let totalWeight = 0;
+    let totalValue = 0;
+    const lines: ArrivalLine[] = [];
+
+    for (const lineDto of linesInput) {
+      seqBase += 1;
+      const seq = String(seqBase).padStart(3, '0');
+      const lotNumber = `${fmtNum(lineDto.quantity)}-${seq}`;
+      const amount = round2(lineDto.weight * lineDto.rate);
+
+      lines.push(
+        manager.create(ArrivalLine, {
+          arrivalId: arrival.id,
+          itemId: lineDto.itemId,
+          lotNumber,
+          quantity: lineDto.quantity,
+          weight: lineDto.weight,
+          rate: lineDto.rate,
+          amount,
+        }),
+      );
+
+      await manager.save(
+        manager.create(StockLot, {
+          organizationId,
+          branchId: arrival.branchId,
+          lotNumber,
+          itemId: lineDto.itemId,
+          supplierId,
+          arrivalId: arrival.id,
+          rate: lineDto.rate,
+          qtyArrived: lineDto.quantity,
+          weightArrived: lineDto.weight,
+          qtyAvailable: lineDto.quantity,
+          weightAvailable: lineDto.weight,
+          status: LotStatus.ACTIVE,
+          date,
+        }),
+      );
+
+      totalQuantity += lineDto.quantity;
+      totalWeight += lineDto.weight;
+      totalValue += amount;
+    }
+
+    await manager.save(lines);
+    return {
+      totalQuantity: round2(totalQuantity),
+      totalWeight: round2(totalWeight),
+      totalValue: round2(totalValue),
+    };
+  }
+
+  /** Highest trailing "-NNN" sequence across the org's lot numbers (0 if none). */
+  private async maxLotSeq(manager: EntityManager, organizationId: string): Promise<number> {
+    const lots = await manager.find(StockLot, {
+      where: { organizationId },
+      select: { id: true, lotNumber: true },
+    });
+    let max = 0;
+    for (const l of lots) {
+      const m = l.lotNumber.match(/-(\d+)$/);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    return max;
   }
 
   private async nextArrivalNumber(
@@ -128,4 +264,9 @@ export class ArrivalsService {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/** Compact number for lot labels: 100, 6120, or 6120.5 (no trailing zeros). */
+function fmtNum(n: number): string {
+  return String(Math.round(n * 100) / 100);
 }

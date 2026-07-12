@@ -25,6 +25,11 @@ export class ExpensesController {
     return this.expenses.list(orgId, branchId, { from, to });
   }
 
+  @Get('categories')
+  categories(@CurrentUser('organizationId') orgId: string) {
+    return this.expenses.listCategories(orgId);
+  }
+
   @Roles(Role.ACCOUNTANT, Role.ORG_ADMIN)
   @Post()
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateExpenseDto) {

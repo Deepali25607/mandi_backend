@@ -1,17 +1,19 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { AuthUser } from '@/common/decorators/current-user.decorator';
 import { LotStatus, PaymentMode } from '@/common/enums/domain.enum';
 import { Item } from '@/modules/items/item.entity';
 import { StockLot } from '@/modules/inventory/stock-lot.entity';
+import { SupplierBill } from '@/modules/settlements/supplier-bill.entity';
 import { Sale } from './sale.entity';
 import { SaleLine } from './sale-line.entity';
-import { CreateSaleDto, SaleLineDto } from './dto/sale.dto';
+import { CreateSaleDto, SaleLineDto, UpdateSaleDto } from './dto/sale.dto';
 
 @Injectable()
 export class SalesService {
@@ -61,76 +63,238 @@ export class SalesService {
 
     const saleId = await this.dataSource.transaction(async (manager) => {
       const saleNumber = await this.nextSaleNumber(manager, organizationId);
-
-      const sale = manager.create(Sale, {
-        organizationId,
-        branchId,
-        saleNumber,
-        date: dto.date,
-        customerId: dto.customerId,
-        paymentMode: dto.paymentMode ?? PaymentMode.CREDIT,
-        notes: dto.notes,
-        createdByUserId: user.id,
-      });
-      const savedSale = await manager.save(sale);
-
-      let grossTotal = 0;
-      let commissionTotal = 0;
-      let marketFeeTotal = 0;
-      let netTotal = 0;
-
-      const lines: SaleLine[] = [];
-      for (const lineDto of dto.lines) {
-        const item = itemMap.get(lineDto.itemId)!;
-        const commissionPct = lineDto.commissionPct ?? item.defaultCommissionPct ?? 0;
-        const marketFeePct = lineDto.marketFeePct ?? item.defaultMarketFeePct ?? 0;
-
-        // Rate applies to weight when present, else to quantity (per-unit sale).
-        const base = lineDto.weight > 0 ? lineDto.weight : lineDto.quantity;
-        const gross = round2(base * lineDto.rate);
-        const commissionAmount = round2((gross * commissionPct) / 100);
-        const marketFeeAmount = round2((gross * marketFeePct) / 100);
-        const netAmount = round2(gross - commissionAmount - marketFeeAmount);
-
-        if (lineDto.lotId) {
-          await this.drawDownLot(manager, organizationId, branchId, lineDto);
-        }
-
-        lines.push(
-          manager.create(SaleLine, {
-            saleId: savedSale.id,
-            itemId: lineDto.itemId,
-            lotId: lineDto.lotId ?? null,
-            quantity: lineDto.quantity,
-            weight: lineDto.weight,
-            rate: lineDto.rate,
-            commissionPct,
-            marketFeePct,
-            grossAmount: gross,
-            commissionAmount,
-            marketFeeAmount,
-            netAmount,
-          }),
-        );
-
-        grossTotal += gross;
-        commissionTotal += commissionAmount;
-        marketFeeTotal += marketFeeAmount;
-        netTotal += netAmount;
-      }
-
-      await manager.save(lines);
-      savedSale.grossAmount = round2(grossTotal);
-      savedSale.commissionAmount = round2(commissionTotal);
-      savedSale.marketFeeAmount = round2(marketFeeTotal);
-      savedSale.netAmount = round2(netTotal);
-      await manager.save(savedSale);
-
-      return savedSale.id;
+      const sale = await manager.save(
+        manager.create(Sale, {
+          organizationId,
+          branchId,
+          saleNumber,
+          date: dto.date,
+          customerId: dto.customerId,
+          paymentMode: dto.paymentMode ?? PaymentMode.CREDIT,
+          notes: dto.notes,
+          createdByUserId: user.id,
+        }),
+      );
+      const totals = await this.applyLines(
+        manager,
+        { id: sale.id, organizationId, branchId },
+        dto.lines,
+        itemMap,
+      );
+      await manager.update(Sale, { id: sale.id }, totals);
+      return sale.id;
     });
 
     // Re-read after commit so line relations are populated.
     return this.findOne(organizationId, saleId);
+  }
+
+  /**
+   * Safe edit. Header fields (date/customer/payment/notes) are always editable.
+   * Line items may only change while the sale is NOT part of a finalised supplier
+   * settlement (a frozen bill snapshot would otherwise desync). Structural edits
+   * atomically reverse the old stock drawdown and re-apply the new lines.
+   */
+  async update(user: AuthUser, id: string, dto: UpdateSaleDto): Promise<Sale> {
+    const organizationId = user.organizationId!;
+
+    await this.dataSource.transaction(async (manager) => {
+      const sale = await manager.findOne(Sale, {
+        where: { id, organizationId },
+        relations: { lines: true },
+      });
+      if (!sale) throw new NotFoundException('Sale not found');
+
+      // Scalar patch persisted with a plain UPDATE (never re-saving the loaded
+      // entity, so the lines relation is not touched/cascaded).
+      const patch: Partial<Sale> = {};
+      if (dto.date !== undefined) patch.date = dto.date;
+      if (dto.customerId !== undefined) patch.customerId = dto.customerId;
+      if (dto.paymentMode !== undefined) patch.paymentMode = dto.paymentMode;
+      if (dto.notes !== undefined) patch.notes = dto.notes;
+
+      if (dto.lines !== undefined) {
+        // Gate: any finalised supplier bill covering the involved suppliers +
+        // this sale's date freezes the sale from structural edits.
+        const settled = await this.isSettled(
+          manager,
+          organizationId,
+          sale,
+          dto.lines,
+          dto.date ?? sale.date,
+        );
+        if (settled) {
+          throw new ConflictException(
+            'This sale is included in a finalised supplier settlement and cannot be edited. Reverse/redo the settlement first.',
+          );
+        }
+
+        // Reverse the old drawdown, drop old lines, then re-apply the new ones.
+        for (const old of sale.lines) {
+          if (old.lotId) await this.restoreLot(manager, organizationId, old.lotId, old);
+        }
+        await manager.delete(SaleLine, { saleId: id });
+
+        const items = await this.items.find({ where: { organizationId } });
+        const itemMap = new Map(items.map((i) => [i.id, i]));
+        for (const l of dto.lines) {
+          if (!itemMap.has(l.itemId)) throw new BadRequestException(`Unknown item: ${l.itemId}`);
+        }
+        const totals = await this.applyLines(
+          manager,
+          { id, organizationId, branchId: sale.branchId },
+          dto.lines,
+          itemMap,
+        );
+        Object.assign(patch, totals);
+      }
+
+      if (Object.keys(patch).length > 0) {
+        await manager.update(Sale, { id }, patch);
+      }
+    });
+
+    return this.findOne(organizationId, id);
+  }
+
+  /** Sale detail plus whether its line items are locked (finalised settlement). */
+  async findOneWithLock(organizationId: string, id: string) {
+    const sale = await this.findOne(organizationId, id);
+    const locked = await this.isSettled(
+      this.dataSource.manager,
+      organizationId,
+      sale,
+      [],
+      sale.date,
+    );
+    return {
+      ...sale,
+      linesLocked: locked,
+      lockReason: locked
+        ? 'This sale is included in a finalised supplier settlement, so items cannot be changed. Header details can still be edited.'
+        : null,
+    };
+  }
+
+  /**
+   * Builds sale lines (computing gross/commission/fee/net), draws down any
+   * linked lots, and returns the rolled-up totals. Does NOT save the sale header
+   * (the caller persists scalar fields via manager.update to avoid relation
+   * cascades). Shared by create and (structural) update.
+   */
+  private async applyLines(
+    manager: EntityManager,
+    sale: { id: string; organizationId: string; branchId: string },
+    linesDto: SaleLineDto[],
+    itemMap: Map<string, Item>,
+  ): Promise<{
+    grossAmount: number;
+    commissionAmount: number;
+    marketFeeAmount: number;
+    netAmount: number;
+  }> {
+    let grossTotal = 0;
+    let commissionTotal = 0;
+    let marketFeeTotal = 0;
+    let netTotal = 0;
+    const lines: SaleLine[] = [];
+
+    for (const lineDto of linesDto) {
+      const item = itemMap.get(lineDto.itemId)!;
+      const commissionPct = lineDto.commissionPct ?? item.defaultCommissionPct ?? 0;
+      const marketFeePct = lineDto.marketFeePct ?? item.defaultMarketFeePct ?? 0;
+
+      // Rate applies to weight when present, else to quantity (per-unit sale).
+      const base = lineDto.weight > 0 ? lineDto.weight : lineDto.quantity;
+      const gross = round2(base * lineDto.rate);
+      const commissionAmount = round2((gross * commissionPct) / 100);
+      const marketFeeAmount = round2((gross * marketFeePct) / 100);
+      const netAmount = round2(gross - commissionAmount - marketFeeAmount);
+
+      if (lineDto.lotId) {
+        await this.drawDownLot(manager, sale.organizationId, sale.branchId, lineDto);
+      }
+
+      lines.push(
+        manager.create(SaleLine, {
+          saleId: sale.id,
+          itemId: lineDto.itemId,
+          lotId: lineDto.lotId ?? null,
+          quantity: lineDto.quantity,
+          weight: lineDto.weight,
+          rate: lineDto.rate,
+          commissionPct,
+          marketFeePct,
+          grossAmount: gross,
+          commissionAmount,
+          marketFeeAmount,
+          netAmount,
+        }),
+      );
+
+      grossTotal += gross;
+      commissionTotal += commissionAmount;
+      marketFeeTotal += marketFeeAmount;
+      netTotal += netAmount;
+    }
+
+    await manager.save(lines);
+    return {
+      grossAmount: round2(grossTotal),
+      commissionAmount: round2(commissionTotal),
+      marketFeeAmount: round2(marketFeeTotal),
+      netAmount: round2(netTotal),
+    };
+  }
+
+  /** Adds a reversed sale line's qty/weight back to its lot (reopens if closed). */
+  private async restoreLot(
+    manager: EntityManager,
+    organizationId: string,
+    lotId: string,
+    line: { quantity: number; weight: number },
+  ): Promise<void> {
+    const lot = await manager.findOne(StockLot, { where: { id: lotId, organizationId } });
+    if (!lot) return; // lot removed; nothing to restore
+    lot.weightAvailable = round2(Math.min(lot.weightArrived, lot.weightAvailable + line.weight));
+    lot.qtyAvailable = round2(Math.min(lot.qtyArrived, lot.qtyAvailable + line.quantity));
+    if (lot.status === LotStatus.CLOSED && (lot.weightAvailable > 0.001 || lot.qtyAvailable > 0.001)) {
+      lot.status = LotStatus.ACTIVE;
+    }
+    await manager.save(lot);
+  }
+
+  /**
+   * True when a finalised supplier bill covers any supplier of the sale's lots
+   * (old + proposed new) on the effective sale date — meaning the sale's figures
+   * are already frozen into a settlement snapshot.
+   */
+  private async isSettled(
+    manager: EntityManager,
+    organizationId: string,
+    sale: Sale,
+    newLines: SaleLineDto[],
+    effectiveDate: string,
+  ): Promise<boolean> {
+    const lotIds = [
+      ...new Set(
+        [
+          ...sale.lines.map((l) => l.lotId),
+          ...newLines.map((l) => l.lotId ?? null),
+        ].filter((x): x is string => !!x),
+      ),
+    ];
+    if (lotIds.length === 0) return false;
+
+    const lots = await manager.find(StockLot, { where: { id: In(lotIds), organizationId } });
+    const supplierIds = [...new Set(lots.map((l) => l.supplierId))];
+    if (supplierIds.length === 0) return false;
+
+    const bills = await manager.find(SupplierBill, {
+      where: { organizationId, supplierId: In(supplierIds) },
+    });
+    const dates = [...new Set([sale.date, effectiveDate])];
+    return bills.some((b) => dates.some((d) => b.fromDate <= d && d <= b.toDate));
   }
 
   private async drawDownLot(

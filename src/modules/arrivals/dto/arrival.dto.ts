@@ -54,3 +54,38 @@ export class CreateArrivalDto {
   @Type(() => ArrivalLineDto)
   lines: ArrivalLineDto[];
 }
+
+/**
+ * Edit an arrival. All fields optional. Sending `lines` (or a changed
+ * `supplierId`) is a structural edit and is only accepted while the arrival's
+ * lots are untouched; header fields are always editable.
+ */
+export class UpdateArrivalDto {
+  @IsOptional()
+  @IsDateString()
+  date?: string;
+
+  @IsOptional()
+  @IsUUID()
+  supplierId?: string;
+
+  @IsOptional()
+  @IsString()
+  vehicleNumber?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  transportCharges?: number;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => ArrivalLineDto)
+  lines?: ArrivalLineDto[];
+}

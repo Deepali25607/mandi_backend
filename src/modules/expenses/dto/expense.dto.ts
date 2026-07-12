@@ -1,20 +1,26 @@
 import {
   IsDateString,
   IsEnum,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
+  MaxLength,
   Min,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { PaymentMode } from '@/common/enums/domain.enum';
-import { ExpenseCategory } from '../expense.entity';
 
 export class CreateExpenseDto {
   @IsDateString()
   date: string;
 
-  @IsEnum(ExpenseCategory)
-  category: ExpenseCategory;
+  // Free-text category (create-your-own). Trimmed; must be non-empty.
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(60)
+  category: string;
 
   @IsNumber()
   @Min(0.01)

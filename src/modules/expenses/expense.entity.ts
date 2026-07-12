@@ -3,7 +3,7 @@ import { BaseEntity } from '@/common/entities/base.entity';
 import { PaymentMode } from '@/common/enums/domain.enum';
 import { NumericTransformer } from '@/common/transformers/numeric.transformer';
 
-/** BRD Module 15: Expense categories. */
+/** BRD Module 15: built-in expense categories (seed the suggestion list). */
 export enum ExpenseCategory {
   LABOUR = 'labour',
   TRANSPORT = 'transport',
@@ -11,6 +11,9 @@ export enum ExpenseCategory {
   RENT = 'rent',
   MISCELLANEOUS = 'miscellaneous',
 }
+
+/** Categories always offered as suggestions, even before any expense uses them. */
+export const DEFAULT_EXPENSE_CATEGORIES: string[] = Object.values(ExpenseCategory);
 
 @Entity('expenses')
 @Index(['organizationId', 'branchId'])
@@ -28,8 +31,11 @@ export class Expense extends BaseEntity {
   @Column({ type: 'date' })
   date: string;
 
-  @Column({ type: 'enum', enum: ExpenseCategory, default: ExpenseCategory.MISCELLANEOUS })
-  category: ExpenseCategory;
+  // Free-text so users can create their own categories on the fly (not a fixed
+  // enum). Stored lowercase/trimmed; the suggestion list is DEFAULT_EXPENSE_CATEGORIES
+  // plus whatever categories the org has already used.
+  @Column({ type: 'varchar', length: 60, default: ExpenseCategory.MISCELLANEOUS })
+  category: string;
 
   @Column({ type: 'numeric', precision: 14, scale: 2, default: 0, transformer: NumericTransformer })
   amount: number;

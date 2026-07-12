@@ -68,3 +68,33 @@ export class CreateSaleDto {
   @Type(() => SaleLineDto)
   lines: SaleLineDto[];
 }
+
+/**
+ * Edit a sale. All fields optional. Sending `lines` is a structural edit and is
+ * only accepted while the sale is not part of a finalised supplier settlement;
+ * header fields are always editable.
+ */
+export class UpdateSaleDto {
+  @IsOptional()
+  @IsDateString()
+  date?: string;
+
+  @IsOptional()
+  @IsUUID()
+  customerId?: string;
+
+  @IsOptional()
+  @IsEnum(PaymentMode)
+  paymentMode?: PaymentMode;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => SaleLineDto)
+  lines?: SaleLineDto[];
+}
