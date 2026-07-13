@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
 import {
   AuthUser,
   CurrentUser,
@@ -39,5 +39,12 @@ export class SalesController {
     @Body() dto: UpdateSaleDto,
   ) {
     return this.sales.update(user, id, dto);
+  }
+
+  // Deleting a sale is restricted to the Org Admin.
+  @Roles(Role.ORG_ADMIN)
+  @Delete(':id')
+  remove(@CurrentUser('organizationId') orgId: string, @Param('id') id: string) {
+    return this.sales.remove(orgId, id);
   }
 }

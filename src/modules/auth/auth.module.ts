@@ -7,6 +7,7 @@ import { User } from '@/modules/users/user.entity';
 import { Organization } from '@/modules/organizations/organization.entity';
 import { Branch } from '@/modules/branches/branch.entity';
 import { UsersModule } from '@/modules/users/users.module';
+import { CustomRolesModule } from '@/modules/roles/custom-roles.module';
 import { PlatformModule } from '@/modules/platform/platform.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
@@ -16,6 +17,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
   imports: [
     TypeOrmModule.forFeature([User, Organization, Branch]),
     UsersModule,
+    CustomRolesModule,
     PlatformModule,
     PassportModule,
     JwtModule.registerAsync({

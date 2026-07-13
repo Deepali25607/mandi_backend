@@ -8,7 +8,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ROLE_LABELS, Role } from '@/common/enums/role.enum';
+import { Role } from '@/common/enums/role.enum';
 import {
   hashSecret,
   normalizeAnswer,
@@ -19,6 +19,7 @@ import { Organization } from '@/modules/organizations/organization.entity';
 import { Branch } from '@/modules/branches/branch.entity';
 import { User } from '@/modules/users/user.entity';
 import { PlansService } from '@/modules/platform/plans.service';
+import { CustomRolesService } from '@/modules/roles/custom-roles.service';
 import { SubscriptionService } from '@/modules/platform/subscription.service';
 import { PlatformSettingsService } from '@/modules/platform/platform-settings.service';
 import { SubscriptionStatus } from '@/common/enums/feature.enum';
@@ -39,6 +40,7 @@ export class AuthService {
     @InjectRepository(Branch) private readonly branches: Repository<Branch>,
     private readonly jwt: JwtService,
     private readonly plans: PlansService,
+    private readonly customRoles: CustomRolesService,
     private readonly subscriptions: SubscriptionService,
     private readonly settings: PlatformSettingsService,
   ) {}
@@ -177,6 +179,7 @@ export class AuthService {
       branchId: user.branchId,
     };
     const ctx = await this.subscriptions.resolveContext(user.organizationId);
+    const grants = await this.customRoles.resolveGrants(user);
     return {
       accessToken: this.jwt.sign(payload),
       user: {
@@ -185,7 +188,9 @@ export class AuthService {
         username: user.username,
         mobile: user.mobile,
         role: user.role,
-        roleLabel: ROLE_LABELS[user.role],
+        roleLabel: grants.roleLabel,
+        grantedScreens: grants.grantedScreens,
+        customRoleName: grants.customRoleName,
         organizationId: user.organizationId,
         branchId: user.branchId,
         mustChangePassword: user.mustChangePassword,

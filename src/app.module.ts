@@ -9,6 +9,7 @@ import { RolesGuard } from './common/guards/roles.guard';
 import { AuthModule } from './modules/auth/auth.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { UsersModule } from './modules/users/users.module';
+import { CustomRolesModule } from './modules/roles/custom-roles.module';
 import { ItemsModule } from './modules/items/items.module';
 import { SuppliersModule } from './modules/suppliers/suppliers.module';
 import { CustomersModule } from './modules/customers/customers.module';
@@ -42,6 +43,7 @@ import { Branch } from './modules/branches/branch.entity';
     // Register Organization/Branch so their tables are created via autoLoadEntities.
     TypeOrmModule.forFeature([Organization, Branch]),
     UsersModule,
+    CustomRolesModule,
     AuthModule,
     DashboardModule,
     ItemsModule,

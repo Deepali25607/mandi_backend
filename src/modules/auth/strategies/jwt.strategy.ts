@@ -5,6 +5,7 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { AuthUser } from '@/common/decorators/current-user.decorator';
 import { Role } from '@/common/enums/role.enum';
 import { UsersService } from '@/modules/users/users.service';
+import { CustomRolesService } from '@/modules/roles/custom-roles.service';
 import { SubscriptionService } from '@/modules/platform/subscription.service';
 
 export interface JwtPayload {
@@ -20,6 +21,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     config: ConfigService,
     private readonly usersService: UsersService,
+    private readonly customRoles: CustomRolesService,
     private readonly subscriptions: SubscriptionService,
   ) {
     super({
@@ -39,12 +41,16 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (!ctx.organizationActive) {
       throw new UnauthorizedException('Organization is suspended. Contact platform support.');
     }
+    const grants = await this.customRoles.resolveGrants(user);
     return {
       id: user.id,
       name: user.name,
       username: user.username,
       mobile: user.mobile,
       role: user.role,
+      grantedRoles: grants.grantedRoles,
+      grantedScreens: grants.grantedScreens,
+      customRoleName: grants.customRoleName,
       organizationId: user.organizationId,
       branchId: user.branchId,
       mustChangePassword: user.mustChangePassword,

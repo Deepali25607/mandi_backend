@@ -42,6 +42,30 @@ export class ArrivalsService {
     return arrival;
   }
 
+  /**
+   * Delete an arrival (Org Admin only — enforced at the controller). Removes the
+   * spawned stock lots + lines, and refuses if any of the lots have been used
+   * (sold/transferred).
+   */
+  async remove(organizationId: string, id: string): Promise<{ deleted: true }> {
+    await this.dataSource.transaction(async (manager) => {
+      const arrival = await manager.findOne(Arrival, { where: { id, organizationId } });
+      if (!arrival) throw new NotFoundException('Arrival not found');
+
+      const lots = await manager.find(StockLot, { where: { arrivalId: id, organizationId } });
+      if (lots.some(lotIsUsed)) {
+        throw new ConflictException(
+          'This arrival cannot be deleted: stock from it has already been sold or transferred. Reverse those entries first.',
+        );
+      }
+
+      await manager.delete(StockLot, { arrivalId: id, organizationId });
+      await manager.delete(ArrivalLine, { arrivalId: id });
+      await manager.delete(Arrival, { id, organizationId });
+    });
+    return { deleted: true };
+  }
+
   /** Arrival detail plus whether its line items are locked from editing. */
   async findOneWithLock(organizationId: string, id: string) {
     const arrival = await this.findOne(organizationId, id);

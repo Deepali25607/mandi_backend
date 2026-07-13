@@ -37,6 +37,13 @@ export class User extends BaseEntity {
   })
   role: Role;
 
+  /**
+   * When set, the user's access comes from this organization-defined custom role
+   * instead of the built-in `role` above. Mutually exclusive with a built-in role.
+   */
+  @Column({ name: 'custom_role_id', type: 'uuid', nullable: true })
+  customRoleId: string | null;
+
   /** bcrypt hash of the password. Never selected by default. */
   @Column({ name: 'password_hash', nullable: true, select: false })
   passwordHash?: string;

@@ -157,6 +157,34 @@ export class SalesService {
     return this.findOne(organizationId, id);
   }
 
+  /**
+   * Delete a sale (Org Admin only — enforced at the controller). Reverses the
+   * stock drawdown first, and refuses if the sale is in a finalised settlement.
+   */
+  async remove(organizationId: string, id: string): Promise<{ deleted: true }> {
+    await this.dataSource.transaction(async (manager) => {
+      const sale = await manager.findOne(Sale, {
+        where: { id, organizationId },
+        relations: { lines: true },
+      });
+      if (!sale) throw new NotFoundException('Sale not found');
+
+      const settled = await this.isSettled(manager, organizationId, sale, [], sale.date);
+      if (settled) {
+        throw new ConflictException(
+          'This sale is included in a finalised supplier settlement and cannot be deleted. Reverse the settlement first.',
+        );
+      }
+
+      for (const line of sale.lines) {
+        if (line.lotId) await this.restoreLot(manager, organizationId, line.lotId, line);
+      }
+      await manager.delete(SaleLine, { saleId: id });
+      await manager.delete(Sale, { id, organizationId });
+    });
+    return { deleted: true };
+  }
+
   /** Sale detail plus whether its line items are locked (finalised settlement). */
   async findOneWithLock(organizationId: string, id: string) {
     const sale = await this.findOne(organizationId, id);

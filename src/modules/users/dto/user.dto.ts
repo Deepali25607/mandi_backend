@@ -30,8 +30,15 @@ export class CreateUserDto {
   @MaxLength(72)
   password: string;
 
+  /** Built-in role. Optional when a customRoleId is supplied instead. */
+  @IsOptional()
   @IsEnum(Role)
-  role: Role;
+  role?: Role;
+
+  /** Organization-defined custom role. Mutually exclusive with `role`. */
+  @IsOptional()
+  @IsUUID()
+  customRoleId?: string | null;
 
   @IsOptional()
   @IsUUID()

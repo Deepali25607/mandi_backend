@@ -33,7 +33,10 @@ export class RolesGuard implements CanActivate {
     if (user.role === Role.SUPER_ADMIN) return true;
     if (user.role === Role.ORG_ADMIN && !required.includes(Role.SUPER_ADMIN)) return true;
 
-    if (!required.includes(user.role)) {
+    // A user may hold several effective capability roles (custom roles bundle
+    // the built-in capabilities derived from their granted screens).
+    const granted = user.grantedRoles?.length ? user.grantedRoles : [user.role];
+    if (!required.some((r) => granted.includes(r))) {
       throw new ForbiddenException('Insufficient role for this resource');
     }
     return true;

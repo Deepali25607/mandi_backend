@@ -8,7 +8,14 @@ export interface AuthUser {
   name: string;
   username: string;
   mobile?: string;
+  /** Built-in role (or the stored fallback when a custom role is assigned). */
   role: Role;
+  /** Effective capability roles used for authorization (RolesGuard). */
+  grantedRoles: Role[];
+  /** Granted screen paths — present only for custom-role users. */
+  grantedScreens?: string[];
+  /** The custom role's name, if the user is on a custom role. */
+  customRoleName?: string | null;
   organizationId: string | null;
   branchId: string | null;
   mustChangePassword: boolean;

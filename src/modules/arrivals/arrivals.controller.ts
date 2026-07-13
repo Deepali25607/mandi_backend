@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
 import {
   AuthUser,
   CurrentUser,
@@ -39,5 +39,12 @@ export class ArrivalsController {
     @Body() dto: UpdateArrivalDto,
   ) {
     return this.arrivals.update(user, id, dto);
+  }
+
+  // Deleting an arrival is restricted to the Org Admin.
+  @Roles(Role.ORG_ADMIN)
+  @Delete(':id')
+  remove(@CurrentUser('organizationId') orgId: string, @Param('id') id: string) {
+    return this.arrivals.remove(orgId, id);
   }
 }
