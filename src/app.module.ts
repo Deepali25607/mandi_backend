@@ -18,6 +18,7 @@ import { ArrivalsModule } from './modules/arrivals/arrivals.module';
 import { SalesModule } from './modules/sales/sales.module';
 import { CollectionsModule } from './modules/collections/collections.module';
 import { BankAccountsModule } from './modules/bank-accounts/bank-accounts.module';
+import { CashTransfersModule } from './modules/cash-transfers/cash-transfers.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
 import { SettlementsModule } from './modules/settlements/settlements.module';
 import { OutstandingModule } from './modules/outstanding/outstanding.module';
@@ -55,6 +56,7 @@ import { Branch } from './modules/branches/branch.entity';
     SalesModule,
     CollectionsModule,
     BankAccountsModule,
+    CashTransfersModule,
     ExpensesModule,
     SettlementsModule,
     OutstandingModule,

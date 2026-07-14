@@ -1,12 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { PaymentMode, isBankLinkedMode } from '@/common/enums/domain.enum';
+import { PaymentMode, TransferDirection, isBankLinkedMode } from '@/common/enums/domain.enum';
 import { Customer } from '@/modules/customers/customer.entity';
 import { Supplier } from '@/modules/suppliers/supplier.entity';
 import { Sale } from '@/modules/sales/sale.entity';
 import { Collection } from '@/modules/collections/collection.entity';
 import { BankAccount } from '@/modules/bank-accounts/bank-account.entity';
+import { CashTransfer } from '@/modules/cash-transfers/cash-transfer.entity';
 import { SupplierBill } from '@/modules/settlements/supplier-bill.entity';
 import { SupplierPayment } from '@/modules/settlements/supplier-payment.entity';
 import { Expense } from '@/modules/expenses/expense.entity';
@@ -44,6 +45,8 @@ export interface BankAccountBalance {
   opening: number;
   /** Net received into this account (collections: amount − charges). */
   received: number;
+  /** Net of internal transfers (deposits from cash − withdrawals to cash). */
+  transferNet: number;
   balance: number;
 }
 
@@ -70,6 +73,7 @@ export class AccountingService {
     @InjectRepository(SupplierPayment) private readonly payments: Repository<SupplierPayment>,
     @InjectRepository(Expense) private readonly expenses: Repository<Expense>,
     @InjectRepository(BankAccount) private readonly bankAccounts: Repository<BankAccount>,
+    @InjectRepository(CashTransfer) private readonly transfers: Repository<CashTransfer>,
     private readonly adjustmentsService: AdjustmentsService,
   ) {}
 
@@ -130,21 +134,40 @@ export class AccountingService {
     return { name: supplier.name, rows, balance: round2(balance) };
   }
 
-  /** Cash or bank book from collections (in), supplier payments (out) and expenses (out). */
+  /** Cash or bank book from collections (in), supplier payments (out), expenses (out) and internal transfers. */
   async cashBook(organizationId: string, kind: 'cash' | 'bank'): Promise<{ rows: CashBookRow[]; balance: number }> {
     const modes: PaymentMode[] = kind === 'cash' ? [PaymentMode.CASH] : [PaymentMode.BANK, PaymentMode.UPI];
-    const [receipts, pays, exps] = await Promise.all([
+    const [receipts, pays, exps, transfers] = await Promise.all([
       this.collections.find({ where: { organizationId }, order: { date: 'ASC' } }),
       this.payments.find({ where: { organizationId }, order: { date: 'ASC' } }),
       this.expenses.find({ where: { organizationId }, order: { date: 'ASC' } }),
+      this.transfers.find({ where: { organizationId }, order: { date: 'ASC' } }),
     ]);
     const inMode = (m: PaymentMode) => modes.includes(m);
+
+    // Internal transfers move money between cash and bank (contra entry).
+    const transferRows = transfers.map((t) => {
+      const toBank = t.direction === TransferDirection.CASH_TO_BANK;
+      // On the cash book: deposits go out, withdrawals come in. On the bank book: the reverse.
+      const isInflow = kind === 'cash' ? !toBank : toBank;
+      const particulars = kind === 'cash'
+        ? (toBank ? 'Transfer to bank' : 'Transfer from bank')
+        : (toBank ? 'Deposit from cash' : 'Withdrawal to cash');
+      return {
+        date: t.date,
+        voucher: t.transferNumber,
+        particulars,
+        inflow: isInflow ? t.amount : 0,
+        outflow: isInflow ? 0 : t.amount,
+      };
+    });
 
     const entries: Omit<CashBookRow, 'balance'>[] = [
       // Bank receipts land net of charges; cash receipts have no charges.
       ...receipts.filter((r) => inMode(r.paymentMode)).map((r) => ({ date: r.date, voucher: r.collectionNumber, particulars: (r.charges ?? 0) > 0 ? 'Collection received (net of charges)' : 'Collection received', inflow: round2(r.amount - (r.charges ?? 0)), outflow: 0 })),
       ...pays.filter((p) => inMode(p.paymentMode)).map((p) => ({ date: p.date, voucher: p.paymentNumber, particulars: 'Supplier payment', inflow: 0, outflow: p.amount })),
       ...exps.filter((e) => inMode(e.paymentMode)).map((e) => ({ date: e.date, voucher: e.expenseNumber, particulars: `Expense (${e.category})`, inflow: 0, outflow: e.amount })),
+      ...transferRows,
     ].sort((a, b) => a.date.localeCompare(b.date));
 
     let balance = 0;
@@ -161,20 +184,29 @@ export class AccountingService {
    * account, so they're reported as a shared `bankOutflow` against the total.
    */
   async bankBalances(organizationId: string): Promise<BankBalancesResult> {
-    const [accounts, receipts, pays, exps] = await Promise.all([
+    const [accounts, receipts, pays, exps, transfers] = await Promise.all([
       this.bankAccounts.find({ where: { organizationId }, order: { name: 'ASC' } }),
       this.collections.find({ where: { organizationId } }),
       this.payments.find({ where: { organizationId } }),
       this.expenses.find({ where: { organizationId } }),
+      this.transfers.find({ where: { organizationId } }),
     ]);
 
     const bankReceipts = receipts.filter((r) => isBankLinkedMode(r.paymentMode));
     const netOf = (r: Collection) => round2(r.amount - (r.charges ?? 0));
+    // Deposits (cash→bank) add to an account; withdrawals (bank→cash) subtract.
+    const transferNetFor = (accountId: string) =>
+      round2(
+        transfers
+          .filter((t) => t.bankAccountId === accountId)
+          .reduce((s, t) => s + (t.direction === TransferDirection.CASH_TO_BANK ? t.amount : -t.amount), 0),
+      );
 
     const rows: BankAccountBalance[] = accounts.map((a) => {
       const received = round2(
         bankReceipts.filter((r) => r.bankAccountId === a.id).reduce((s, r) => s + netOf(r), 0),
       );
+      const transferNet = transferNetFor(a.id);
       return {
         id: a.id,
         name: a.name,
@@ -182,7 +214,8 @@ export class AccountingService {
         accountNumber: a.accountNumber,
         opening: round2(a.openingBalance ?? 0),
         received,
-        balance: round2((a.openingBalance ?? 0) + received),
+        transferNet,
+        balance: round2((a.openingBalance ?? 0) + received + transferNet),
       };
     });
 

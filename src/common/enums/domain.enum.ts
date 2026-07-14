@@ -32,3 +32,11 @@ export enum LotStatus {
   ACTIVE = 'active',
   CLOSED = 'closed',
 }
+
+/** Direction of an internal cash ↔ bank fund transfer (contra entry). */
+export enum TransferDirection {
+  /** Deposit: money moves from Cash in Hand into a bank account. */
+  CASH_TO_BANK = 'cash_to_bank',
+  /** Withdrawal: money moves from a bank account into Cash in Hand. */
+  BANK_TO_CASH = 'bank_to_cash',
+}
