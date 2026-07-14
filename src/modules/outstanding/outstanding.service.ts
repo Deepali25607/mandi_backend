@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { PaymentMode } from '@/common/enums/domain.enum';
 import { Customer } from '@/modules/customers/customer.entity';
 import { Supplier } from '@/modules/suppliers/supplier.entity';
 import { Sale } from '@/modules/sales/sale.entity';
@@ -139,7 +140,8 @@ export class OutstandingService {
   async customerAging(organizationId: string, asOf = new Date()): Promise<AgingBucket[]> {
     const [sales, collectedMap, customers] = await Promise.all([
       this.sales.find({
-        where: { organizationId },
+        // Only credit sales are receivable, so only they age.
+        where: { organizationId, paymentMode: PaymentMode.CREDIT },
         select: { id: true, customerId: true, date: true, grossAmount: true },
       }),
       this.collectionsService.totalsByCustomer(organizationId),
@@ -182,12 +184,18 @@ export class OutstandingService {
     return totals.map((t) => ({ label: t.label, value: round2(t.value) }));
   }
 
+  /**
+   * Gross billed to each customer that is still a receivable. Only CREDIT sales
+   * are owed — cash/UPI/bank sales are settled at the point of sale, so they
+   * never enter "To Collect".
+   */
   private async salesGrossByCustomer(organizationId: string): Promise<Map<string, number>> {
     const rows = await this.sales
       .createQueryBuilder('s')
       .select('s.customer_id', 'customerId')
       .addSelect('SUM(s.gross_amount)', 'gross')
       .where('s.organization_id = :organizationId', { organizationId })
+      .andWhere('s.payment_mode = :mode', { mode: PaymentMode.CREDIT })
       .groupBy('s.customer_id')
       .getRawMany<{ customerId: string; gross: string }>();
     return new Map(rows.map((r) => [r.customerId, parseFloat(r.gross)]));

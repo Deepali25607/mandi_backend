@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Between, Repository } from 'typeorm';
 import { AuthUser } from '@/common/decorators/current-user.decorator';
 import { PaymentMode, TransferDirection } from '@/common/enums/domain.enum';
 import { Item } from '@/modules/items/item.entity';
@@ -42,6 +42,20 @@ export interface CashInHandBreakdown {
   withdrawalsFromBank: number;
   net: number;
   rows: CashInHandRow[];
+}
+export interface SalesModeRow {
+  date: string;
+  saleNumber: string;
+  customer: string;
+  gross: number;
+}
+export interface SalesModeResult {
+  mode: PaymentMode;
+  from: string;
+  to: string;
+  total: number;
+  count: number;
+  rows: SalesModeRow[];
 }
 export interface DashboardData {
   asOf: string;
@@ -189,6 +203,37 @@ export class DashboardService {
     ];
 
     return { date: day, cashSales, cashExpenses, depositsToBank, withdrawalsFromBank, net, rows };
+  }
+
+  /**
+   * Sales of one payment mode (cash / credit / …) within a date range, with the
+   * itemised invoices. Powers the split "Cash Sales" / "Credit Sales" dashboard
+   * tiles and their date-range filter.
+   */
+  async salesByMode(user: AuthUser, mode: PaymentMode, from?: string, to?: string): Promise<SalesModeResult> {
+    const organizationId = user.organizationId!;
+    const branchId = user.branchId ?? '';
+    const today = toDateStr(new Date());
+    const f = from ?? today;
+    const t = to ?? today;
+
+    const [sales, customers] = await Promise.all([
+      this.sales.find({
+        where: { organizationId, branchId, paymentMode: mode, date: Between(f, t) },
+        order: { date: 'DESC', saleNumber: 'DESC' },
+      }),
+      this.customers.find({ where: { organizationId }, select: { id: true, name: true } }),
+    ]);
+    const nameById = new Map(customers.map((c) => [c.id, c.name]));
+
+    const rows: SalesModeRow[] = sales.map((s) => ({
+      date: s.date,
+      saleNumber: s.saleNumber,
+      customer: nameById.get(s.customerId) ?? 'Customer',
+      gross: round2(s.grossAmount),
+    }));
+    const total = round2(rows.reduce((sum, r) => sum + r.gross, 0));
+    return { mode, from: f, to: t, total, count: rows.length, rows };
   }
 
   private async sumSales(org: string, branch: string, from: string, to: string): Promise<number> {

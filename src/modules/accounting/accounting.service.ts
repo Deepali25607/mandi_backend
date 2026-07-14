@@ -77,13 +77,17 @@ export class AccountingService {
     private readonly adjustmentsService: AdjustmentsService,
   ) {}
 
-  /** Customer ledger: sales add to receivable (debit), collections reduce it (credit). */
+  /**
+   * Customer ledger: credit sales add to receivable (debit), collections reduce
+   * it (credit). Cash/UPI/bank sales are paid at the counter, so they are not
+   * receivables and don't appear here (keeps the balance aligned with To Collect).
+   */
   async customerLedger(organizationId: string, customerId: string): Promise<{ name: string; rows: LedgerRow[]; balance: number }> {
     const customer = await this.customers.findOne({ where: { id: customerId, organizationId } });
     if (!customer) throw new NotFoundException('Customer not found');
 
     const [sales, receipts] = await Promise.all([
-      this.sales.find({ where: { organizationId, customerId }, order: { date: 'ASC' } }),
+      this.sales.find({ where: { organizationId, customerId, paymentMode: PaymentMode.CREDIT }, order: { date: 'ASC' } }),
       this.collections.find({ where: { organizationId, customerId }, order: { date: 'ASC' } }),
     ]);
 
