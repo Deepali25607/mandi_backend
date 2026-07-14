@@ -1,9 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Between, Repository } from 'typeorm';
 import { AuthUser } from '@/common/decorators/current-user.decorator';
 import { PaymentMode } from '@/common/enums/domain.enum';
 import { SaleLine } from '@/modules/sales/sale-line.entity';
+import { Arrival } from '@/modules/arrivals/arrival.entity';
 import { SupplierBill, SupplierBillStatus } from './supplier-bill.entity';
 import { SupplierPayment } from './supplier-payment.entity';
 
@@ -13,6 +14,11 @@ export interface SupplierSalesAgg {
   marketFee: number;
   net: number;
   saleLineCount: number;
+}
+
+/** Sales aggregate plus the auto-deducted transport for a settlement preview. */
+export interface SupplierBillPreview extends SupplierSalesAgg {
+  transport: number;
 }
 
 interface CreateBillInput {
@@ -42,7 +48,22 @@ export class SettlementsService {
     @InjectRepository(SupplierBill) private readonly bills: Repository<SupplierBill>,
     @InjectRepository(SupplierPayment) private readonly payments: Repository<SupplierPayment>,
     @InjectRepository(SaleLine) private readonly saleLines: Repository<SaleLine>,
+    @InjectRepository(Arrival) private readonly arrivals: Repository<Arrival>,
   ) {}
+
+  /** Total transport (bhada) on a supplier's arrivals within [fromDate, toDate]. */
+  async transportForSupplier(
+    organizationId: string,
+    supplierId: string,
+    fromDate: string,
+    toDate: string,
+  ): Promise<number> {
+    const arrivals = await this.arrivals.find({
+      where: { organizationId, supplierId, date: Between(fromDate, toDate) },
+      select: { transportCharges: true },
+    });
+    return round2(arrivals.reduce((s, a) => s + (a.transportCharges ?? 0), 0));
+  }
 
   /**
    * Aggregate a supplier's sold-lot figures. Only lot-linked sale lines are
@@ -94,17 +115,25 @@ export class SettlementsService {
     return new Map(rows.map((r) => [r.supplierId, parseFloat(r.net)]));
   }
 
-  async previewBill(organizationId: string, supplierId: string, fromDate: string, toDate: string) {
-    return this.aggregateSupplierSales(organizationId, supplierId, fromDate, toDate);
+  async previewBill(organizationId: string, supplierId: string, fromDate: string, toDate: string): Promise<SupplierBillPreview> {
+    const [agg, transport] = await Promise.all([
+      this.aggregateSupplierSales(organizationId, supplierId, fromDate, toDate),
+      this.transportForSupplier(organizationId, supplierId, fromDate, toDate),
+    ]);
+    return { ...agg, transport };
   }
 
   async createBill(user: AuthUser, dto: CreateBillInput): Promise<SupplierBill> {
     const organizationId = user.organizationId!;
-    const agg = await this.aggregateSupplierSales(organizationId, dto.supplierId, dto.fromDate, dto.toDate);
+    const [agg, transport] = await Promise.all([
+      this.aggregateSupplierSales(organizationId, dto.supplierId, dto.fromDate, dto.toDate),
+      // Transport is always auto-deducted from the supplier's arrivals in the period.
+      this.transportForSupplier(organizationId, dto.supplierId, dto.fromDate, dto.toDate),
+    ]);
     const labour = dto.labourCharges ?? 0;
     const crate = dto.crateCharges ?? 0;
     const other = dto.otherCharges ?? 0;
-    const netPayable = round2(agg.net - labour - crate - other);
+    const netPayable = round2(agg.net - transport - labour - crate - other);
     const billNumber = await this.nextBillNumber(organizationId);
 
     return this.bills.save(
@@ -119,6 +148,7 @@ export class SettlementsService {
         grossSales: agg.gross,
         commissionAmount: agg.commission,
         marketFeeAmount: agg.marketFee,
+        transportCharges: transport,
         labourCharges: labour,
         crateCharges: crate,
         otherCharges: other,

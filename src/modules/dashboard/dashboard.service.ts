@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuthUser } from '@/common/decorators/current-user.decorator';
+import { PaymentMode, TransferDirection } from '@/common/enums/domain.enum';
 import { Item } from '@/modules/items/item.entity';
 import { Customer } from '@/modules/customers/customer.entity';
 import { Supplier } from '@/modules/suppliers/supplier.entity';
@@ -9,6 +10,8 @@ import { Sale } from '@/modules/sales/sale.entity';
 import { SaleLine } from '@/modules/sales/sale-line.entity';
 import { Arrival } from '@/modules/arrivals/arrival.entity';
 import { Collection } from '@/modules/collections/collection.entity';
+import { Expense } from '@/modules/expenses/expense.entity';
+import { CashTransfer } from '@/modules/cash-transfers/cash-transfer.entity';
 import { InventoryService } from '@/modules/inventory/inventory.service';
 import { OutstandingService } from '@/modules/outstanding/outstanding.service';
 import { SettlementsService } from '@/modules/settlements/settlements.service';
@@ -24,6 +27,21 @@ export interface KpiCard {
 export interface SeriesPoint {
   label: string;
   value: number;
+}
+export interface CashInHandRow {
+  voucher: string;
+  particulars: string;
+  inflow: number;
+  outflow: number;
+}
+export interface CashInHandBreakdown {
+  date: string;
+  cashSales: number;
+  cashExpenses: number;
+  depositsToBank: number;
+  withdrawalsFromBank: number;
+  net: number;
+  rows: CashInHandRow[];
 }
 export interface DashboardData {
   asOf: string;
@@ -49,6 +67,8 @@ export class DashboardService {
     @InjectRepository(Item) private readonly items: Repository<Item>,
     @InjectRepository(Customer) private readonly customers: Repository<Customer>,
     @InjectRepository(Supplier) private readonly suppliers: Repository<Supplier>,
+    @InjectRepository(Expense) private readonly expenses: Repository<Expense>,
+    @InjectRepository(CashTransfer) private readonly transfers: Repository<CashTransfer>,
     private readonly inventoryService: InventoryService,
     private readonly outstandingService: OutstandingService,
     private readonly settlementsService: SettlementsService,
@@ -67,6 +87,7 @@ export class DashboardService {
       todayCollections,
       todayCommission,
       todayMarketFee,
+      cashInHand,
       inventory,
       outstanding,
       aging,
@@ -81,6 +102,7 @@ export class DashboardService {
       this.sumCollections(organizationId, branchId, today, today),
       this.sumSaleField(organizationId, branchId, 'commission_amount', today),
       this.sumSaleField(organizationId, branchId, 'market_fee_amount', today),
+      this.cashInHand(user, today),
       this.inventoryService.summary(organizationId, branchId),
       this.outstandingService.summary(organizationId),
       this.outstandingService.customerAging(organizationId),
@@ -101,6 +123,7 @@ export class DashboardService {
         { key: 'todayArrival', label: "Today's Arrival", value: round2(todayArrival), format: 'currency', icon: 'truck' },
         { key: 'todaySales', label: "Today's Sales", value: round2(todaySales), format: 'currency', icon: 'cart' },
         { key: 'todayCollections', label: "Today's Collections", value: round2(todayCollections), format: 'currency', icon: 'cash' },
+        { key: 'cashInHand', label: "Today's Cash in Hand", value: cashInHand.net, format: 'currency', icon: 'wallet' },
         { key: 'outstandingReceivable', label: 'To Collect', value: outstanding.receivable, format: 'currency', icon: 'receivable' },
         { key: 'outstandingPayable', label: 'To Pay', value: outstanding.payable, format: 'currency', icon: 'payable' },
         { key: 'inventoryValue', label: 'Inventory Value', value: round2(inventoryValue), format: 'currency', icon: 'box' },
@@ -116,6 +139,56 @@ export class DashboardService {
         supplierWiseSales: supplierWise,
       },
     };
+  }
+
+  /**
+   * Today's Cash in Hand = Cash Sales − Cash Expenses − net Bank Deposits.
+   * Only CASH-mode sales/expenses count (bank-linked modes land in the bank,
+   * not the cash drawer). Cash→bank transfers reduce cash; bank→cash add to it.
+   * Returns an itemised breakdown of every cash movement for the day.
+   */
+  async cashInHand(user: AuthUser, date?: string): Promise<CashInHandBreakdown> {
+    const organizationId = user.organizationId!;
+    const branchId = user.branchId ?? '';
+    const day = date ?? toDateStr(new Date());
+
+    const [sales, expenses, transfers] = await Promise.all([
+      this.sales.find({
+        where: { organizationId, branchId, date: day, paymentMode: PaymentMode.CASH },
+        order: { saleNumber: 'ASC' },
+      }),
+      this.expenses.find({
+        where: { organizationId, branchId, date: day, paymentMode: PaymentMode.CASH },
+        order: { expenseNumber: 'ASC' },
+      }),
+      this.transfers.find({ where: { organizationId, date: day }, order: { transferNumber: 'ASC' } }),
+    ]);
+
+    const cashSales = round2(sales.reduce((s, r) => s + r.grossAmount, 0));
+    const cashExpenses = round2(expenses.reduce((s, e) => s + e.amount, 0));
+    const depositsToBank = round2(
+      transfers.filter((t) => t.direction === TransferDirection.CASH_TO_BANK).reduce((s, t) => s + t.amount, 0),
+    );
+    const withdrawalsFromBank = round2(
+      transfers.filter((t) => t.direction === TransferDirection.BANK_TO_CASH).reduce((s, t) => s + t.amount, 0),
+    );
+    const net = round2(cashSales - cashExpenses - (depositsToBank - withdrawalsFromBank));
+
+    const rows: CashInHandRow[] = [
+      ...sales.map((s) => ({ voucher: s.saleNumber, particulars: 'Cash sale', inflow: round2(s.grossAmount), outflow: 0 })),
+      ...expenses.map((e) => ({ voucher: e.expenseNumber, particulars: `Cash expense (${e.category})`, inflow: 0, outflow: round2(e.amount) })),
+      ...transfers.map((t) => {
+        const toBank = t.direction === TransferDirection.CASH_TO_BANK;
+        return {
+          voucher: t.transferNumber,
+          particulars: toBank ? 'Deposit to bank' : 'Withdrawal from bank',
+          inflow: toBank ? 0 : round2(t.amount),
+          outflow: toBank ? round2(t.amount) : 0,
+        };
+      }),
+    ];
+
+    return { date: day, cashSales, cashExpenses, depositsToBank, withdrawalsFromBank, net, rows };
   }
 
   private async sumSales(org: string, branch: string, from: string, to: string): Promise<number> {

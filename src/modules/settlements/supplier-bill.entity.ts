@@ -11,7 +11,7 @@ export enum SupplierBillStatus {
  * BRD Module 6: Supplier Bill / Settlement.
  * Aggregates a supplier's sold-lot figures over a date range, then applies
  * settlement deductions. netPayable = grossSales − commission − marketFee
- * − labour − crate − other.
+ * − transport − labour − crate − other.
  */
 @Entity('supplier_bills')
 @Index(['organizationId', 'branchId'])
@@ -47,6 +47,10 @@ export class SupplierBill extends BaseEntity {
 
   @Column({ name: 'market_fee_amount', type: 'numeric', precision: 14, scale: 2, default: 0, transformer: NumericTransformer })
   marketFeeAmount: number;
+
+  /** Transport (bhada) auto-summed from the supplier's arrivals in the period; always deducted. */
+  @Column({ name: 'transport_charges', type: 'numeric', precision: 14, scale: 2, default: 0, transformer: NumericTransformer })
+  transportCharges: number;
 
   @Column({ name: 'labour_charges', type: 'numeric', precision: 14, scale: 2, default: 0, transformer: NumericTransformer })
   labourCharges: number;

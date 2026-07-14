@@ -4,6 +4,7 @@ import { DataSource, EntityManager, Repository } from 'typeorm';
 import { AuthUser } from '@/common/decorators/current-user.decorator';
 import { LotStatus } from '@/common/enums/domain.enum';
 import { StockLot } from '@/modules/inventory/stock-lot.entity';
+import { Supplier } from '@/modules/suppliers/supplier.entity';
 import { Arrival } from './arrival.entity';
 import { ArrivalLine } from './arrival-line.entity';
 import { CreateArrivalDto, UpdateArrivalDto } from './dto/arrival.dto';
@@ -204,10 +205,17 @@ export class ArrivalsService {
     linesInput: { itemId: string; quantity: number; weight: number; rate: number }[],
   ): Promise<{ totalQuantity: number; totalWeight: number; totalValue: number }> {
     const organizationId = arrival.organizationId;
-    // Lot number = <qty>-<seq 001..>: the quantity entered for the line plus an
-    // org-wide running number (max+1, never reused) so lots stay unique even when
-    // two lines share the same quantity.
+    // Lot number = <SUPP4>-<qty>-<seq 0001..>: first 4 letters of the supplier
+    // name, the bags entered, and an org-wide running number (max+1, never
+    // reused, unbounded past 9999) so every lot stays unique.
     let seqBase = await this.maxLotSeq(manager, organizationId);
+
+    // Prefix each lot with the supplier's first 4 letters.
+    const supplier = await manager.findOne(Supplier, {
+      where: { id: supplierId, organizationId },
+      select: { id: true, name: true },
+    });
+    const prefix = namePrefix(supplier?.name ?? '');
 
     let totalQuantity = 0;
     let totalWeight = 0;
@@ -216,8 +224,8 @@ export class ArrivalsService {
 
     for (const lineDto of linesInput) {
       seqBase += 1;
-      const seq = String(seqBase).padStart(3, '0');
-      const lotNumber = `${fmtNum(lineDto.quantity)}-${seq}`;
+      const seq = String(seqBase).padStart(4, '0');
+      const lotNumber = `${prefix}-${fmtNum(lineDto.quantity)}-${seq}`;
       const amount = round2(lineDto.weight * lineDto.rate);
 
       lines.push(
@@ -293,4 +301,10 @@ function round2(n: number): number {
 /** Compact number for lot labels: 100, 6120, or 6120.5 (no trailing zeros). */
 function fmtNum(n: number): string {
   return String(Math.round(n * 100) / 100);
+}
+
+/** First 4 alphanumerics of a name, upper-cased and padded, for lot codes. */
+function namePrefix(name: string): string {
+  const clean = (name || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  return (clean + 'XXXX').slice(0, 4);
 }

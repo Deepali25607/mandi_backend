@@ -7,6 +7,8 @@ import { Sale } from '@/modules/sales/sale.entity';
 import { SaleLine } from '@/modules/sales/sale-line.entity';
 import { Arrival } from '@/modules/arrivals/arrival.entity';
 import { Collection } from '@/modules/collections/collection.entity';
+import { Expense } from '@/modules/expenses/expense.entity';
+import { CashTransfer } from '@/modules/cash-transfers/cash-transfer.entity';
 import { InventoryModule } from '@/modules/inventory/inventory.module';
 import { OutstandingModule } from '@/modules/outstanding/outstanding.module';
 import { SettlementsModule } from '@/modules/settlements/settlements.module';
@@ -15,7 +17,7 @@ import { DashboardService } from './dashboard.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Item, Customer, Supplier, Sale, SaleLine, Arrival, Collection]),
+    TypeOrmModule.forFeature([Item, Customer, Supplier, Sale, SaleLine, Arrival, Collection, Expense, CashTransfer]),
     InventoryModule,
     OutstandingModule,
     SettlementsModule,
