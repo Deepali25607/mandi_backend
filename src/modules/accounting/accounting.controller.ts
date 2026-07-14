@@ -27,6 +27,11 @@ export class AccountingController {
     return this.accounting.cashBook(orgId, kind === 'bank' ? 'bank' : 'cash');
   }
 
+  @Get('bank-balances')
+  bankBalances(@CurrentUser('organizationId') orgId: string) {
+    return this.accounting.bankBalances(orgId);
+  }
+
   @Get('trial-balance')
   trialBalance(@CurrentUser('organizationId') orgId: string) {
     return this.accounting.trialBalance(orgId);

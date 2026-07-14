@@ -20,6 +20,13 @@ export enum PaymentMode {
   BANK = 'bank',
 }
 
+/** Modes whose money lands in a bank account (not Cash in Hand). */
+export const BANK_LINKED_MODES: PaymentMode[] = [PaymentMode.UPI, PaymentMode.BANK];
+
+export function isBankLinkedMode(mode: PaymentMode): boolean {
+  return BANK_LINKED_MODES.includes(mode);
+}
+
 /** Lifecycle of an inventory lot. */
 export enum LotStatus {
   ACTIVE = 'active',

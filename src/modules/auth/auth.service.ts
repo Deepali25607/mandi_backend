@@ -192,6 +192,7 @@ export class AuthService {
         grantedScreens: grants.grantedScreens,
         customRoleName: grants.customRoleName,
         organizationId: user.organizationId,
+        organizationName: ctx.organizationName,
         branchId: user.branchId,
         mustChangePassword: user.mustChangePassword,
         features: ctx.features,

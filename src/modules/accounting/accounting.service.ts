@@ -1,11 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { PaymentMode } from '@/common/enums/domain.enum';
+import { PaymentMode, isBankLinkedMode } from '@/common/enums/domain.enum';
 import { Customer } from '@/modules/customers/customer.entity';
 import { Supplier } from '@/modules/suppliers/supplier.entity';
 import { Sale } from '@/modules/sales/sale.entity';
 import { Collection } from '@/modules/collections/collection.entity';
+import { BankAccount } from '@/modules/bank-accounts/bank-account.entity';
 import { SupplierBill } from '@/modules/settlements/supplier-bill.entity';
 import { SupplierPayment } from '@/modules/settlements/supplier-payment.entity';
 import { Expense } from '@/modules/expenses/expense.entity';
@@ -35,6 +36,29 @@ export interface TrialBalanceRow {
   credit: number;
 }
 
+export interface BankAccountBalance {
+  id: string;
+  name: string;
+  bankName?: string;
+  accountNumber?: string;
+  opening: number;
+  /** Net received into this account (collections: amount − charges). */
+  received: number;
+  balance: number;
+}
+
+export interface BankBalancesResult {
+  accounts: BankAccountBalance[];
+  /** Net bank receipts not tagged to any account. */
+  unallocatedReceived: number;
+  /** Bank-mode supplier payments + expenses (not tied to a specific account). */
+  bankOutflow: number;
+  /** Total bank charges deducted at source (informational). */
+  bankCharges: number;
+  /** Overall bank position across all accounts. */
+  totalBalance: number;
+}
+
 @Injectable()
 export class AccountingService {
   constructor(
@@ -45,6 +69,7 @@ export class AccountingService {
     @InjectRepository(SupplierBill) private readonly bills: Repository<SupplierBill>,
     @InjectRepository(SupplierPayment) private readonly payments: Repository<SupplierPayment>,
     @InjectRepository(Expense) private readonly expenses: Repository<Expense>,
+    @InjectRepository(BankAccount) private readonly bankAccounts: Repository<BankAccount>,
     private readonly adjustmentsService: AdjustmentsService,
   ) {}
 
@@ -116,7 +141,8 @@ export class AccountingService {
     const inMode = (m: PaymentMode) => modes.includes(m);
 
     const entries: Omit<CashBookRow, 'balance'>[] = [
-      ...receipts.filter((r) => inMode(r.paymentMode)).map((r) => ({ date: r.date, voucher: r.collectionNumber, particulars: 'Collection received', inflow: r.amount, outflow: 0 })),
+      // Bank receipts land net of charges; cash receipts have no charges.
+      ...receipts.filter((r) => inMode(r.paymentMode)).map((r) => ({ date: r.date, voucher: r.collectionNumber, particulars: (r.charges ?? 0) > 0 ? 'Collection received (net of charges)' : 'Collection received', inflow: round2(r.amount - (r.charges ?? 0)), outflow: 0 })),
       ...pays.filter((p) => inMode(p.paymentMode)).map((p) => ({ date: p.date, voucher: p.paymentNumber, particulars: 'Supplier payment', inflow: 0, outflow: p.amount })),
       ...exps.filter((e) => inMode(e.paymentMode)).map((e) => ({ date: e.date, voucher: e.expenseNumber, particulars: `Expense (${e.category})`, inflow: 0, outflow: e.amount })),
     ].sort((a, b) => a.date.localeCompare(b.date));
@@ -127,6 +153,52 @@ export class AccountingService {
       return { ...e, inflow: round2(e.inflow), outflow: round2(e.outflow), balance: round2(balance) };
     });
     return { rows, balance: round2(balance) };
+  }
+
+  /**
+   * Per-bank-account reconciliation. Each account = opening + net receipts routed
+   * to it. Bank-mode supplier payments/expenses aren't tagged to a specific
+   * account, so they're reported as a shared `bankOutflow` against the total.
+   */
+  async bankBalances(organizationId: string): Promise<BankBalancesResult> {
+    const [accounts, receipts, pays, exps] = await Promise.all([
+      this.bankAccounts.find({ where: { organizationId }, order: { name: 'ASC' } }),
+      this.collections.find({ where: { organizationId } }),
+      this.payments.find({ where: { organizationId } }),
+      this.expenses.find({ where: { organizationId } }),
+    ]);
+
+    const bankReceipts = receipts.filter((r) => isBankLinkedMode(r.paymentMode));
+    const netOf = (r: Collection) => round2(r.amount - (r.charges ?? 0));
+
+    const rows: BankAccountBalance[] = accounts.map((a) => {
+      const received = round2(
+        bankReceipts.filter((r) => r.bankAccountId === a.id).reduce((s, r) => s + netOf(r), 0),
+      );
+      return {
+        id: a.id,
+        name: a.name,
+        bankName: a.bankName,
+        accountNumber: a.accountNumber,
+        opening: round2(a.openingBalance ?? 0),
+        received,
+        balance: round2((a.openingBalance ?? 0) + received),
+      };
+    });
+
+    const unallocatedReceived = round2(
+      bankReceipts.filter((r) => !r.bankAccountId).reduce((s, r) => s + netOf(r), 0),
+    );
+    const bankOutflow = round2(
+      pays.filter((p) => isBankLinkedMode(p.paymentMode)).reduce((s, p) => s + p.amount, 0) +
+        exps.filter((e) => isBankLinkedMode(e.paymentMode)).reduce((s, e) => s + e.amount, 0),
+    );
+    const bankCharges = round2(bankReceipts.reduce((s, r) => s + (r.charges ?? 0), 0));
+    const totalBalance = round2(
+      rows.reduce((s, r) => s + r.balance, 0) + unallocatedReceived - bankOutflow,
+    );
+
+    return { accounts: rows, unallocatedReceived, bankOutflow, bankCharges, totalBalance };
   }
 
   /**
@@ -153,6 +225,7 @@ export class AccountingService {
     const totalReceipts = sum(receipts, 'amount');
     const totalPayments = sum(pays, 'amount');
     const totalExpenses = sum(exps, 'amount');
+    const totalBankCharges = receipts.reduce((s, r) => s + (r.charges ?? 0), 0);
     const billNet = sum(bills, 'netPayable');
 
     const openingDebtors = customers.reduce((s, c) => s + (c.openingBalance ?? 0), 0);
@@ -160,12 +233,14 @@ export class AccountingService {
 
     const debtors = round2(openingDebtors + salesGross - totalReceipts); // receivable
     const creditors = round2(openingCreditors + billNet - totalPayments); // payable
-    const cashBank = round2(totalReceipts - totalPayments - totalExpenses);
+    // Cash & Bank receives receipts less the charges skimmed at source.
+    const cashBank = round2(totalReceipts - totalBankCharges - totalPayments - totalExpenses);
 
     const rows: TrialBalanceRow[] = [
       { account: 'Sundry Debtors (Receivable)', debit: Math.max(0, debtors), credit: Math.max(0, -debtors) },
       { account: 'Cash & Bank', debit: Math.max(0, cashBank), credit: Math.max(0, -cashBank) },
       { account: 'Expenses', debit: round2(totalExpenses), credit: 0 },
+      ...(totalBankCharges > 0 ? [{ account: 'Bank Charges', debit: round2(totalBankCharges), credit: 0 }] : []),
       { account: 'Sundry Creditors (Payable)', debit: Math.max(0, -creditors), credit: Math.max(0, creditors) },
       { account: 'Commission Income', debit: 0, credit: round2(commissionIncome) },
       { account: 'Market Fee Collected', debit: 0, credit: round2(marketFeeCollected) },

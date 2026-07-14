@@ -4,6 +4,7 @@ import { Customer } from '@/modules/customers/customer.entity';
 import { Supplier } from '@/modules/suppliers/supplier.entity';
 import { Sale } from '@/modules/sales/sale.entity';
 import { Collection } from '@/modules/collections/collection.entity';
+import { BankAccount } from '@/modules/bank-accounts/bank-account.entity';
 import { SupplierBill } from '@/modules/settlements/supplier-bill.entity';
 import { SupplierPayment } from '@/modules/settlements/supplier-payment.entity';
 import { Expense } from '@/modules/expenses/expense.entity';
@@ -13,7 +14,7 @@ import { AccountingController } from './accounting.controller';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Customer, Supplier, Sale, Collection, SupplierBill, SupplierPayment, Expense]),
+    TypeOrmModule.forFeature([Customer, Supplier, Sale, Collection, BankAccount, SupplierBill, SupplierPayment, Expense]),
     AdjustmentsModule,
   ],
   providers: [AccountingService],

@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, FindOptionsWhere, Repository } from 'typeorm';
 import { AuthUser } from '@/common/decorators/current-user.decorator';
-import { PaymentMode } from '@/common/enums/domain.enum';
+import { PaymentMode, isBankLinkedMode } from '@/common/enums/domain.enum';
+import { BankAccountsService } from '@/modules/bank-accounts/bank-accounts.service';
 import { Collection } from './collection.entity';
 
 interface CreateCollectionInput {
@@ -10,6 +11,8 @@ interface CreateCollectionInput {
   customerId: string;
   amount: number;
   paymentMode?: PaymentMode;
+  bankAccountId?: string | null;
+  charges?: number;
   reference?: string;
   notes?: string;
 }
@@ -18,6 +21,7 @@ interface CreateCollectionInput {
 export class CollectionsService {
   constructor(
     @InjectRepository(Collection) private readonly repo: Repository<Collection>,
+    private readonly bankAccounts: BankAccountsService,
   ) {}
 
   list(
@@ -33,6 +37,22 @@ export class CollectionsService {
 
   async create(user: AuthUser, dto: CreateCollectionInput): Promise<Collection> {
     const organizationId = user.organizationId!;
+    const mode = dto.paymentMode ?? PaymentMode.CASH;
+    const bankLinked = isBankLinkedMode(mode);
+
+    // Charges and a bank account only make sense for bank-linked receipts.
+    let bankAccountId: string | null = null;
+    let charges = 0;
+    if (bankLinked) {
+      charges = dto.charges ?? 0;
+      if (charges < 0) throw new BadRequestException('Charges cannot be negative.');
+      if (charges >= dto.amount) throw new BadRequestException('Charges must be less than the amount received.');
+      if (dto.bankAccountId) {
+        await this.bankAccounts.assertUsable(organizationId, dto.bankAccountId);
+        bankAccountId = dto.bankAccountId;
+      }
+    }
+
     const number = await this.nextNumber(organizationId);
     return this.repo.save(
       this.repo.create({
@@ -42,7 +62,9 @@ export class CollectionsService {
         date: dto.date,
         customerId: dto.customerId,
         amount: dto.amount,
-        paymentMode: dto.paymentMode ?? PaymentMode.CASH,
+        paymentMode: mode,
+        bankAccountId,
+        charges,
         reference: dto.reference,
         notes: dto.notes,
         createdByUserId: user.id,

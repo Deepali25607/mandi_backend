@@ -30,6 +30,14 @@ export class Collection extends BaseEntity {
   @Column({ name: 'payment_mode', type: 'enum', enum: PaymentMode, default: PaymentMode.CASH })
   paymentMode: PaymentMode;
 
+  /** Bank account the money landed in (only for bank-linked modes; null for cash). */
+  @Column({ name: 'bank_account_id', type: 'uuid', nullable: true })
+  bankAccountId: string | null;
+
+  /** Bank/transaction charges deducted at source. Net to the bank = amount − charges. */
+  @Column({ type: 'numeric', precision: 14, scale: 2, default: 0, transformer: NumericTransformer })
+  charges: number;
+
   @Column({ nullable: true })
   reference?: string;
 

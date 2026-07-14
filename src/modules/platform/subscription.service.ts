@@ -7,6 +7,7 @@ import { PlatformFeature, SubscriptionStatus } from '@/common/enums/feature.enum
 /** Resolved subscription context attached to a request principal. */
 export interface OrgSubscriptionContext {
   organizationActive: boolean;
+  organizationName: string | null;
   planId: string | null;
   planName: string | null;
   status: SubscriptionStatus | null;
@@ -33,11 +34,11 @@ export class SubscriptionService {
   async resolveContext(organizationId: string | null): Promise<OrgSubscriptionContext> {
     if (!organizationId) {
       // Platform-level principal (Super Admin) — no tenant subscription.
-      return { organizationActive: true, planId: null, planName: null, status: null, renewalDate: null, locked: false, features: [] };
+      return { organizationActive: true, organizationName: null, planId: null, planName: null, status: null, renewalDate: null, locked: false, features: [] };
     }
     const org = await this.orgs.findOne({ where: { id: organizationId }, relations: { plan: true } });
     if (!org) {
-      return { organizationActive: false, planId: null, planName: null, status: null, renewalDate: null, locked: true, features: [] };
+      return { organizationActive: false, organizationName: null, planId: null, planName: null, status: null, renewalDate: null, locked: true, features: [] };
     }
     // A trial or active plan is entitled only until its renewal date passes.
     // ISO date strings ("YYYY-MM-DD") compare chronologically as plain strings.
@@ -53,6 +54,7 @@ export class SubscriptionService {
     const features = entitled && org.plan?.isActive ? (org.plan.features ?? []) : [];
     return {
       organizationActive: org.isActive,
+      organizationName: org.name ?? null,
       planId: org.planId,
       planName: org.plan?.name ?? null,
       status: org.subscriptionStatus,

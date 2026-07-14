@@ -46,6 +46,7 @@ export const ASSIGNABLE_SCREENS: ScreenDef[] = [
   { path: '/billing', label: 'Billing', section: 'Accounts', capabilities: [Role.SALES_OPERATOR] },
   { path: '/settlements', label: 'Settlements', section: 'Accounts', capabilities: [Role.ACCOUNTANT], feature: PlatformFeature.SETTLEMENTS },
   { path: '/outstanding', label: 'Outstanding', section: 'Accounts', capabilities: [] },
+  { path: '/bank-accounts', label: 'Bank Accounts', section: 'Accounts', capabilities: [Role.ACCOUNTANT] },
   { path: '/adjustments', label: 'Adjustments', section: 'Accounts', capabilities: [Role.ACCOUNTANT], feature: PlatformFeature.ADJUSTMENTS },
   { path: '/expenses', label: 'Expenses', section: 'Accounts', capabilities: [Role.ACCOUNTANT], feature: PlatformFeature.EXPENSES },
   { path: '/accounting', label: 'Accounting', section: 'Accounts', capabilities: [Role.AUDITOR], feature: PlatformFeature.ACCOUNTING },

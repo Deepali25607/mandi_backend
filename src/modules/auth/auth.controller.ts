@@ -61,6 +61,7 @@ export class AuthController {
 
   @Get('me')
   me(@CurrentUser() user: AuthUser) {
-    return { ...user, roleLabel: ROLE_LABELS[user.role] };
+    // Custom-role users show their role name; built-in users their role label.
+    return { ...user, roleLabel: user.customRoleName ?? ROLE_LABELS[user.role] };
   }
 }
