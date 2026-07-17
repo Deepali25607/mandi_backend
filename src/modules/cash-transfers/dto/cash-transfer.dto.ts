@@ -1,3 +1,4 @@
+import { PartialType } from '@nestjs/mapped-types';
 import { IsDateString, IsEnum, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 import { TransferDirection } from '@/common/enums/domain.enum';
 
@@ -19,3 +20,5 @@ export class CreateCashTransferDto {
   @IsString()
   notes?: string;
 }
+
+export class UpdateCashTransferDto extends PartialType(CreateCashTransferDto) {}
