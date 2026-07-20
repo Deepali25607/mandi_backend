@@ -52,7 +52,7 @@ async function seed() {
       features: [
         PlatformFeature.EXPENSES, PlatformFeature.REPORTS, PlatformFeature.SETTLEMENTS,
         PlatformFeature.CRATES, PlatformFeature.ACCOUNTING, PlatformFeature.CHALLANS,
-        PlatformFeature.ADJUSTMENTS,
+        PlatformFeature.ADJUSTMENTS, PlatformFeature.AI_ASSISTANT,
       ],
       isDefault: false, isPublic: true, isActive: true, sortOrder: 3,
     },

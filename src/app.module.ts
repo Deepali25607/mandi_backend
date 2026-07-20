@@ -31,6 +31,7 @@ import { OrganizationsModule } from './modules/organizations/organizations.modul
 import { BranchesModule } from './modules/branches/branches.module';
 import { PlatformModule } from './modules/platform/platform.module';
 import { BackupModule } from './modules/backup/backup.module';
+import { VoiceModule } from './modules/voice/voice.module';
 import { FeatureGuard } from './common/guards/feature.guard';
 import { SubscriptionLockGuard } from './common/guards/subscription-lock.guard';
 import { Organization } from './modules/organizations/organization.entity';
@@ -38,7 +39,9 @@ import { Branch } from './modules/branches/branch.entity';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    // .env.local (gitignored) overrides .env — real secrets like GROQ_API_KEY
+    // live there so the tracked .env stays safe to commit.
+    ConfigModule.forRoot({ isGlobal: true, envFilePath: ['.env.local', '.env'] }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: buildDatabaseConfig,
@@ -70,6 +73,7 @@ import { Branch } from './modules/branches/branch.entity';
     BranchesModule,
     PlatformModule,
     BackupModule,
+    VoiceModule,
   ],
   controllers: [AppController],
   providers: [

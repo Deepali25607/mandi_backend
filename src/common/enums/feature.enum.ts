@@ -14,6 +14,7 @@ export enum PlatformFeature {
   CHALLANS = 'challans',
   ADJUSTMENTS = 'adjustments',
   REPORTS = 'reports',
+  AI_ASSISTANT = 'ai_assistant',
 }
 
 /** All feature keys an admin can toggle on a plan. */
@@ -28,6 +29,7 @@ export const FEATURE_CATALOGUE: { key: PlatformFeature; label: string; descripti
   { key: PlatformFeature.CHALLANS, label: 'For-Sale Challans', description: 'Transfer stock on challan, report and settle.' },
   { key: PlatformFeature.ADJUSTMENTS, label: 'Rate & Weight Adjustments', description: 'Record rate/weight differences against suppliers.' },
   { key: PlatformFeature.REPORTS, label: 'Reports', description: 'Sales, collection and stock registers.' },
+  { key: PlatformFeature.AI_ASSISTANT, label: 'AI Munim Assistant', description: 'Voice/chat assistant that opens screens and records collections, expenses and transfers.' },
 ];
 
 /** Subscription lifecycle status for an organization. */

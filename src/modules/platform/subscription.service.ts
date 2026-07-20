@@ -51,7 +51,14 @@ export class SubscriptionService {
     // Locked = read-only. `organizationActive` (org.isActive) stays a separate,
     // harder switch used to block LOGIN entirely; expiry only makes it read-only.
     const locked = !org.isActive || !entitled;
-    const features = entitled && org.plan?.isActive ? (org.plan.features ?? []) : [];
+    let features = entitled && org.plan?.isActive ? [...(org.plan.features ?? [])] : [];
+    // Super Admin per-org override for the AI assistant: true adds it (still
+    // requires an entitled subscription), false strips it, null follows the plan.
+    if (org.aiAssistant === false) {
+      features = features.filter((f) => f !== PlatformFeature.AI_ASSISTANT);
+    } else if (org.aiAssistant === true && entitled && !features.includes(PlatformFeature.AI_ASSISTANT)) {
+      features.push(PlatformFeature.AI_ASSISTANT);
+    }
     return {
       organizationActive: org.isActive,
       organizationName: org.name ?? null,

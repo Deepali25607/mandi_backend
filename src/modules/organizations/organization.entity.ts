@@ -51,6 +51,11 @@ export class Organization extends BaseEntity {
   @Column({ name: 'renewal_date', type: 'date', nullable: true })
   renewalDate: string | null;
 
+  // Super Admin per-org override for the AI Munim Assistant:
+  // null = follow the plan's feature list, true = force ON, false = force OFF.
+  @Column({ name: 'ai_assistant', type: 'boolean', nullable: true })
+  aiAssistant: boolean | null;
+
   // --- Appearance (Theme & Wallpaper, managed by the Org Admin) ---
   // Stored as a single JSON blob so the look-and-feel applies to every user
   // in the tenant. null until the admin customises it (frontend falls back

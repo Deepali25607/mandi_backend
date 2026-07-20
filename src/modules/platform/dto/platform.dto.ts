@@ -93,6 +93,11 @@ export class UpdateOrganizationAdminDto {
   @IsOptional()
   @IsString()
   renewalDate?: string | null;
+
+  /** AI assistant override: true = force on, false = force off, null = follow plan. */
+  @IsOptional()
+  @IsIn([true, false, null])
+  aiAssistant?: boolean | null;
 }
 
 export class UpdateSettingDto {

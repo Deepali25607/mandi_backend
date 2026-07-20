@@ -76,6 +76,7 @@ export class PlatformService {
       billingCycle: org.billingCycle,
       subscriptionStart: org.subscriptionStart,
       renewalDate: org.renewalDate,
+      aiAssistant: org.aiAssistant ?? null,
       createdAt: org.createdAt,
       primaryAdmin: admin ? { name: admin.name, username: admin.username, mobile: admin.mobile } : null,
       usage,
@@ -94,6 +95,7 @@ export class PlatformService {
     if (dto.subscriptionStatus !== undefined) org.subscriptionStatus = dto.subscriptionStatus;
     if (dto.billingCycle !== undefined) org.billingCycle = dto.billingCycle;
     if (dto.renewalDate !== undefined) org.renewalDate = dto.renewalDate || null;
+    if (dto.aiAssistant !== undefined) org.aiAssistant = dto.aiAssistant;
 
     await this.orgs.save(org);
     return this.getOrganization(id);

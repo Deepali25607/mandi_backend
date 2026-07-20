@@ -3,3 +3,5 @@ dist/
 *.log
 .DS_Store
 # keep .env tracked for this dev project so the team can run it out-of-the-box
+# real secrets (API keys) go in .env.local, which never lands in git
+.env.local
