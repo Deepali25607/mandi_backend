@@ -1,6 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ILike, Repository } from 'typeorm';
+import { Adjustment } from '@/modules/adjustments/adjustment.entity';
+import { ArrivalLine } from '@/modules/arrivals/arrival-line.entity';
+import { ChallanLine } from '@/modules/challans/challan-line.entity';
+import { StockLot } from '@/modules/inventory/stock-lot.entity';
+import { SaleLine } from '@/modules/sales/sale-line.entity';
 import { Item } from './item.entity';
 import { CreateItemDto, UpdateItemDto } from './dto/item.dto';
 
@@ -8,6 +13,11 @@ import { CreateItemDto, UpdateItemDto } from './dto/item.dto';
 export class ItemsService {
   constructor(
     @InjectRepository(Item) private readonly items: Repository<Item>,
+    @InjectRepository(StockLot) private readonly stockLots: Repository<StockLot>,
+    @InjectRepository(ArrivalLine) private readonly arrivalLines: Repository<ArrivalLine>,
+    @InjectRepository(SaleLine) private readonly saleLines: Repository<SaleLine>,
+    @InjectRepository(ChallanLine) private readonly challanLines: Repository<ChallanLine>,
+    @InjectRepository(Adjustment) private readonly adjustments: Repository<Adjustment>,
   ) {}
 
   findAll(organizationId: string, search?: string): Promise<Item[]> {
@@ -45,6 +55,34 @@ export class ItemsService {
     const item = await this.findOne(organizationId, id);
     item.isActive = false;
     return this.items.save(item);
+  }
+
+  /**
+   * Hard delete (Org Admin only). Refused while any transaction references the
+   * item — deleting it would orphan arrival/sale/stock history.
+   */
+  async removePermanently(organizationId: string, id: string): Promise<{ deleted: true }> {
+    const item = await this.findOne(organizationId, id);
+    const [lots, arrivals, sales, challans, adjustments] = await Promise.all([
+      this.stockLots.count({ where: { itemId: id } }),
+      this.arrivalLines.count({ where: { itemId: id } }),
+      this.saleLines.count({ where: { itemId: id } }),
+      this.challanLines.count({ where: { itemId: id } }),
+      this.adjustments.count({ where: { itemId: id } }),
+    ]);
+    const used: string[] = [];
+    if (arrivals) used.push(`${arrivals} arrival line(s)`);
+    if (sales) used.push(`${sales} sale line(s)`);
+    if (lots) used.push(`${lots} stock lot(s)`);
+    if (challans) used.push(`${challans} challan line(s)`);
+    if (adjustments) used.push(`${adjustments} adjustment(s)`);
+    if (used.length > 0) {
+      throw new ConflictException(
+        `"${item.name}" is used by ${used.join(', ')} — archive it instead of deleting.`,
+      );
+    }
+    await this.items.delete({ id, organizationId });
+    return { deleted: true };
   }
 
   private async nextCode(organizationId: string): Promise<string> {

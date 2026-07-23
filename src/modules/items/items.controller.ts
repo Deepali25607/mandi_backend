@@ -50,4 +50,11 @@ export class ItemsController {
   remove(@CurrentUser('organizationId') orgId: string, @Param('id') id: string) {
     return this.items.remove(orgId, id);
   }
+
+  // Hard delete — admin only; the service refuses if any transaction uses the item.
+  @Roles(Role.ORG_ADMIN)
+  @Delete(':id/permanent')
+  removePermanently(@CurrentUser('organizationId') orgId: string, @Param('id') id: string) {
+    return this.items.removePermanently(orgId, id);
+  }
 }
