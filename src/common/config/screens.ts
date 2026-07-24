@@ -41,7 +41,8 @@ export const ASSIGNABLE_SCREENS: ScreenDef[] = [
   { path: '/suppliers', label: 'Suppliers', section: 'Masters', capabilities: [Role.PURCHASE_OPERATOR] },
   { path: '/customers', label: 'Customers', section: 'Masters', capabilities: [Role.SALES_OPERATOR] },
   { path: '/items', label: 'Items', section: 'Masters', capabilities: [Role.INVENTORY_MANAGER] },
-  { path: '/prices', label: 'Daily Prices', section: 'Masters', capabilities: [Role.INVENTORY_MANAGER] },
+  // Price updates are open to every org user (audit-logged), so no capability needed.
+  { path: '/prices', label: 'Daily Prices', section: 'Masters', capabilities: [] },
 
   // Accounts
   { path: '/billing', label: 'Billing', section: 'Accounts', capabilities: [Role.SALES_OPERATOR] },

@@ -1,7 +1,5 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { AuthUser, CurrentUser } from '@/common/decorators/current-user.decorator';
-import { Roles } from '@/common/decorators/roles.decorator';
-import { Role } from '@/common/enums/role.enum';
 import { ItemPricesService } from './item-prices.service';
 import { SetItemPriceDto } from './dto/item-price.dto';
 
@@ -27,8 +25,8 @@ export class ItemPricesController {
     return this.prices.log(orgId);
   }
 
-  // Daily rate updates: admin, stock keeper and the sales counter.
-  @Roles(Role.ORG_ADMIN, Role.INVENTORY_MANAGER, Role.SALES_OPERATOR)
+  // Daily rate updates are open to every org user — each change is logged
+  // with who made it, so the audit trail (not a role gate) is the control.
   @Post()
   set(@CurrentUser() user: AuthUser, @Body() dto: SetItemPriceDto) {
     return this.prices.set(user, dto);
