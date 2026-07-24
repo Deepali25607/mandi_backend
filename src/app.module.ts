@@ -11,6 +11,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { UsersModule } from './modules/users/users.module';
 import { CustomRolesModule } from './modules/roles/custom-roles.module';
 import { ItemsModule } from './modules/items/items.module';
+import { ItemPricesModule } from './modules/item-prices/item-prices.module';
 import { SuppliersModule } from './modules/suppliers/suppliers.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
@@ -53,6 +54,7 @@ import { Branch } from './modules/branches/branch.entity';
     AuthModule,
     DashboardModule,
     ItemsModule,
+    ItemPricesModule,
     SuppliersModule,
     CustomersModule,
     InventoryModule,
