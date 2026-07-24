@@ -1,6 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, EntityTarget, In, ObjectLiteral, Repository } from 'typeorm';
+import { AuthUser } from '@/common/decorators/current-user.decorator';
+import { verifySecret } from '@/common/utils/password.util';
 import { Organization } from '@/modules/organizations/organization.entity';
 import { Branch } from '@/modules/branches/branch.entity';
 import { User } from '@/modules/users/user.entity';
@@ -20,6 +22,9 @@ import { CrateTransaction } from '@/modules/crates/crate-transaction.entity';
 import { Adjustment } from '@/modules/adjustments/adjustment.entity';
 import { Challan } from '@/modules/challans/challan.entity';
 import { ChallanLine } from '@/modules/challans/challan-line.entity';
+import { BankAccount } from '@/modules/bank-accounts/bank-account.entity';
+import { CashTransfer } from '@/modules/cash-transfers/cash-transfer.entity';
+import { ItemPrice } from '@/modules/item-prices/item-price.entity';
 
 /**
  * Per-organization data backup. Strictly tenant-scoped: every record is filtered
@@ -61,6 +66,7 @@ export class BackupService {
       branches, users, items, suppliers, customers, stockLots,
       arrivals, sales, collections, supplierBills, supplierPayments,
       expenses, crateTransactions, adjustments, challans,
+      bankAccounts, cashTransfers, itemPrices,
     ] = await Promise.all([
       this.branches.find(scope),
       this.users.find(scope), // secrets (passwordHash/securityAnswerHash) are select:false → excluded
@@ -77,6 +83,9 @@ export class BackupService {
       this.crates.find(scope),
       this.adjustments.find(scope),
       this.challans.find(scope),
+      this.dataSource.getRepository(BankAccount).find(scope),
+      this.dataSource.getRepository(CashTransfer).find(scope),
+      this.dataSource.getRepository(ItemPrice).find(scope),
     ]);
 
     // Child line-tables: filtered via their parents (no organization_id of their own).
@@ -99,7 +108,7 @@ export class BackupService {
       branches, users, items, suppliers, customers, stockLots,
       arrivals, arrivalLines, sales, saleLines, collections,
       supplierBills, supplierPayments, expenses, crateTransactions, adjustments,
-      challans, challanLines,
+      challans, challanLines, bankAccounts, cashTransfers, itemPrices,
     };
 
     const recordCounts = Object.fromEntries(
@@ -159,8 +168,8 @@ export class BackupService {
 
       for (const Entity of [
         Adjustment, Collection, SupplierPayment, SupplierBill, Expense,
-        CrateTransaction, Sale, Challan, StockLot, Arrival,
-        Item, Supplier, Customer, Branch,
+        CrateTransaction, CashTransfer, Sale, Challan, StockLot, Arrival,
+        ItemPrice, Item, Supplier, Customer, BankAccount, Branch,
       ]) {
         await m.delete(Entity, { organizationId });
       }
@@ -184,9 +193,61 @@ export class BackupService {
       restored.adjustments = await this.insertAll(m, Adjustment, d.adjustments, organizationId);
       restored.challans = await this.insertAll(m, Challan, d.challans, organizationId);
       restored.challanLines = await this.insertAll(m, ChallanLine, d.challanLines, organizationId);
+      restored.bankAccounts = await this.insertAll(m, BankAccount, d.bankAccounts, organizationId);
+      restored.cashTransfers = await this.insertAll(m, CashTransfer, d.cashTransfers, organizationId);
+      restored.itemPrices = await this.insertAll(m, ItemPrice, d.itemPrices, organizationId);
     });
 
     return { restored };
+  }
+
+  /**
+   * Factory reset: permanently deletes ALL of the organization's business data —
+   * masters and transactions — after re-verifying the admin's password. Kept:
+   * the organization itself, branches, user accounts/logins, custom roles and
+   * settings, so the team can sign back in to an empty company.
+   *
+   * The UI downloads a full backup BEFORE calling this; the endpoint itself is
+   * a plain destructive wipe.
+   */
+  async reset(user: AuthUser, password: string): Promise<{ wiped: Record<string, number> }> {
+    const organizationId = user.organizationId!;
+
+    // Re-verify the caller's password — a stolen session must not be enough.
+    const account = await this.users
+      .createQueryBuilder('u')
+      .addSelect('u.passwordHash')
+      .where('u.id = :id AND u.organization_id = :organizationId', { id: user.id, organizationId })
+      .getOne();
+    if (!(await verifySecret(password, account?.passwordHash))) {
+      throw new ForbiddenException('Incorrect password — company data was NOT deleted.');
+    }
+
+    const wiped: Record<string, number> = {};
+    await this.dataSource.transaction(async (m) => {
+      // Children first (they carry no organizationId of their own).
+      const saleIds = await this.idsFor(m, Sale, organizationId);
+      const arrivalIds = await this.idsFor(m, Arrival, organizationId);
+      const challanIds = await this.idsFor(m, Challan, organizationId);
+      wiped.saleLines = saleIds.length ? (await m.delete(SaleLine, { saleId: In(saleIds) })).affected ?? 0 : 0;
+      wiped.arrivalLines = arrivalIds.length ? (await m.delete(ArrivalLine, { arrivalId: In(arrivalIds) })).affected ?? 0 : 0;
+      wiped.challanLines = challanIds.length ? (await m.delete(ChallanLine, { challanId: In(challanIds) })).affected ?? 0 : 0;
+
+      // Transactions before the masters they reference; branches/users stay.
+      const order: [string, EntityTarget<ObjectLiteral>][] = [
+        ['adjustments', Adjustment], ['collections', Collection],
+        ['supplierPayments', SupplierPayment], ['supplierBills', SupplierBill],
+        ['expenses', Expense], ['crateTransactions', CrateTransaction],
+        ['cashTransfers', CashTransfer], ['sales', Sale], ['challans', Challan],
+        ['stockLots', StockLot], ['arrivals', Arrival],
+        ['itemPrices', ItemPrice], ['items', Item],
+        ['suppliers', Supplier], ['customers', Customer], ['bankAccounts', BankAccount],
+      ];
+      for (const [name, Entity] of order) {
+        wiped[name] = (await m.delete(Entity, { organizationId })).affected ?? 0;
+      }
+    });
+    return { wiped };
   }
 
   private async idsFor(
