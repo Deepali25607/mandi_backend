@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query } from '@nestjs/common';
 import {
   AuthUser,
   CurrentUser,
@@ -27,5 +27,12 @@ export class CollectionsController {
   @Post()
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateCollectionDto) {
     return this.collections.create(user, dto);
+  }
+
+  // Deleting a receipt is restricted to the Org Admin.
+  @Roles(Role.ORG_ADMIN)
+  @Delete(':id')
+  remove(@CurrentUser('organizationId') orgId: string, @Param('id') id: string) {
+    return this.collections.remove(orgId, id);
   }
 }

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, FindOptionsWhere, Repository } from 'typeorm';
 import { AuthUser } from '@/common/decorators/current-user.decorator';
@@ -72,6 +72,18 @@ export class CollectionsService {
     );
   }
 
+  /**
+   * Delete a collection receipt (Org Admin only — enforced at the controller).
+   * The customer's outstanding recomputes automatically (it derives from
+   * sales − collections), so the amount simply becomes due again.
+   */
+  async remove(organizationId: string, id: string): Promise<{ deleted: true }> {
+    const row = await this.repo.findOne({ where: { id, organizationId } });
+    if (!row) throw new NotFoundException('Collection not found');
+    await this.repo.delete({ id, organizationId });
+    return { deleted: true };
+  }
+
   /** Total collected per customer (for outstanding calc). */
   async totalsByCustomer(organizationId: string): Promise<Map<string, number>> {
     const rows = await this.repo
@@ -85,7 +97,16 @@ export class CollectionsService {
   }
 
   private async nextNumber(organizationId: string): Promise<string> {
-    const count = await this.repo.count({ where: { organizationId } });
-    return `COL-${String(count + 1).padStart(4, '0')}`;
+    // Max existing number + 1 — a row count would reuse numbers after deletes.
+    const rows = await this.repo.find({
+      where: { organizationId },
+      select: { id: true, collectionNumber: true },
+    });
+    let max = 0;
+    for (const r of rows) {
+      const m = r.collectionNumber.match(/(\d+)$/);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    return `COL-${String(max + 1).padStart(4, '0')}`;
   }
 }
