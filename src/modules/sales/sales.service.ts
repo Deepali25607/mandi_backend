@@ -1,15 +1,18 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { AuthUser } from '@/common/decorators/current-user.decorator';
+import { Role } from '@/common/enums/role.enum';
 import { LotStatus, PaymentMode } from '@/common/enums/domain.enum';
 import { Item } from '@/modules/items/item.entity';
 import { StockLot } from '@/modules/inventory/stock-lot.entity';
+import { Arrival } from '@/modules/arrivals/arrival.entity';
 import { SupplierBill } from '@/modules/settlements/supplier-bill.entity';
 import { Sale } from './sale.entity';
 import { SaleLine } from './sale-line.entity';
@@ -52,6 +55,7 @@ export class SalesService {
   async create(user: AuthUser, dto: CreateSaleDto): Promise<Sale> {
     const organizationId = user.organizationId!;
     const branchId = user.branchId!;
+    this.assertSupplierRateAllowed(user, dto.lines);
 
     // Pre-load item defaults for commission / market fee fallbacks.
     const itemIds = [...new Set(dto.lines.map((l) => l.itemId))];
@@ -99,6 +103,7 @@ export class SalesService {
    */
   async update(user: AuthUser, id: string, dto: UpdateSaleDto): Promise<Sale> {
     const organizationId = user.organizationId!;
+    this.assertSupplierRateAllowed(user, dto.lines ?? []);
 
     await this.dataSource.transaction(async (manager) => {
       const sale = await manager.findOne(Sale, {
@@ -239,9 +244,19 @@ export class SalesService {
       // Rate applies to weight when present, else to quantity (per-unit sale).
       const base = lineDto.weight > 0 ? lineDto.weight : lineDto.quantity;
       const gross = round2(base * lineDto.rate);
-      const commissionAmount = round2((gross * commissionPct) / 100);
-      const marketFeeAmount = round2((gross * marketFeePct) / 100);
-      const netAmount = round2(gross - commissionAmount - marketFeeAmount);
+
+      // Dual rate (Commission purchases): the customer is billed at `rate`,
+      // but the supplier's side — gross, commission, fee, net — is computed
+      // at `supplierRate`. Single-rate lines settle at the customer rate.
+      if (lineDto.supplierRate != null) {
+        await this.assertCommissionLot(manager, sale.organizationId, lineDto.lotId);
+      }
+      const supplierGross =
+        lineDto.supplierRate != null ? round2(base * lineDto.supplierRate) : null;
+      const settleBase = supplierGross ?? gross;
+      const commissionAmount = round2((settleBase * commissionPct) / 100);
+      const marketFeeAmount = round2((settleBase * marketFeePct) / 100);
+      const netAmount = round2(settleBase - commissionAmount - marketFeeAmount);
 
       if (lineDto.lotId) {
         await this.drawDownLot(manager, sale.organizationId, sale.branchId, lineDto);
@@ -255,6 +270,8 @@ export class SalesService {
           quantity: lineDto.quantity,
           weight: lineDto.weight,
           rate: lineDto.rate,
+          supplierRate: lineDto.supplierRate ?? null,
+          supplierGrossAmount: supplierGross,
           commissionPct,
           marketFeePct,
           grossAmount: gross,
@@ -277,6 +294,34 @@ export class SalesService {
       marketFeeAmount: round2(marketFeeTotal),
       netAmount: round2(netTotal),
     };
+  }
+
+  /** Supplier rate is confidential — only the Org Admin may set or change it. */
+  private assertSupplierRateAllowed(user: AuthUser, lines: SaleLineDto[]): void {
+    if (lines.some((l) => l.supplierRate != null) && user.role !== Role.ORG_ADMIN) {
+      throw new ForbiddenException('Only the Org Admin can set the supplier rate.');
+    }
+  }
+
+  /** Dual rate is only valid on lines drawn from a Commission-purchase lot. */
+  private async assertCommissionLot(
+    manager: EntityManager,
+    organizationId: string,
+    lotId?: string,
+  ): Promise<void> {
+    const fail = () => {
+      throw new BadRequestException(
+        'Supplier rate can only be set on items drawn from a Commission-purchase lot.',
+      );
+    };
+    if (!lotId) fail();
+    const lot = await manager.findOne(StockLot, { where: { id: lotId, organizationId } });
+    if (!lot?.arrivalId) fail();
+    const arrival = await manager.findOne(Arrival, {
+      where: { id: lot!.arrivalId, organizationId },
+      select: { id: true, purchaseType: true },
+    });
+    if (arrival?.purchaseType !== 'commission') fail();
   }
 
   /** Adds a reversed sale line's qty/weight back to its lot (reopens if closed). */

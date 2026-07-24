@@ -8,37 +8,52 @@ import { Role } from '@/common/enums/role.enum';
 import { SalesService } from './sales.service';
 import { CreateSaleDto, UpdateSaleDto } from './dto/sale.dto';
 
+/**
+ * The supplier rate (and its gross) is the agent's confidential margin —
+ * strip it from every response unless the caller is the Org Admin.
+ */
+function hideSupplierRate<T extends { lines?: object[] }>(sale: T, role?: Role | string): T {
+  if (role === Role.ORG_ADMIN) return sale;
+  return {
+    ...sale,
+    lines: sale.lines?.map((l) => {
+      const rest = { ...l } as Record<string, unknown>;
+      delete rest.supplierRate;
+      delete rest.supplierGrossAmount;
+      return rest;
+    }),
+  };
+}
+
 @Controller('sales')
 export class SalesController {
   constructor(private readonly sales: SalesService) {}
 
   @Get()
-  list(
-    @CurrentUser('organizationId') orgId: string,
-    @CurrentUser('branchId') branchId: string,
-  ) {
-    return this.sales.list(orgId, branchId);
+  async list(@CurrentUser() user: AuthUser) {
+    const sales = await this.sales.list(user.organizationId!, user.branchId!);
+    return sales.map((s) => hideSupplierRate(s, user.role));
   }
 
   @Get(':id')
-  findOne(@CurrentUser('organizationId') orgId: string, @Param('id') id: string) {
-    return this.sales.findOneWithLock(orgId, id);
+  async findOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return hideSupplierRate(await this.sales.findOneWithLock(user.organizationId!, id), user.role);
   }
 
   @Roles(Role.SALES_OPERATOR, Role.ACCOUNTANT)
   @Post()
-  create(@CurrentUser() user: AuthUser, @Body() dto: CreateSaleDto) {
-    return this.sales.create(user, dto);
+  async create(@CurrentUser() user: AuthUser, @Body() dto: CreateSaleDto) {
+    return hideSupplierRate(await this.sales.create(user, dto), user.role);
   }
 
   @Roles(Role.SALES_OPERATOR, Role.ACCOUNTANT)
   @Patch(':id')
-  update(
+  async update(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: UpdateSaleDto,
   ) {
-    return this.sales.update(user, id, dto);
+    return hideSupplierRate(await this.sales.update(user, id, dto), user.role);
   }
 
   // Deleting a sale is restricted to the Org Admin.

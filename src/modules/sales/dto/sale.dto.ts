@@ -35,6 +35,12 @@ export class SaleLineDto {
   @Min(0)
   rate: number;
 
+  /** Actual rate payable to the supplier (Commission lots, Org Admin only). */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  supplierRate?: number;
+
   @IsOptional()
   @IsNumber()
   @Min(0)

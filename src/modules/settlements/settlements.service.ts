@@ -79,7 +79,9 @@ export class SettlementsService {
       .createQueryBuilder('sl')
       .innerJoin('stock_lots', 'lot', 'lot.id = sl.lot_id')
       .innerJoin('sales', 's', 's.id = sl.sale_id')
-      .select('COALESCE(SUM(sl.gross_amount),0)', 'gross')
+      // Dual-rate lines settle at the supplier-basis gross; the customer-rate
+      // gross (and the margin between them) never reaches the supplier.
+      .select('COALESCE(SUM(COALESCE(sl.supplier_gross_amount, sl.gross_amount)),0)', 'gross')
       .addSelect('COALESCE(SUM(sl.commission_amount),0)', 'commission')
       .addSelect('COALESCE(SUM(sl.market_fee_amount),0)', 'marketFee')
       .addSelect('COALESCE(SUM(sl.net_amount),0)', 'net')

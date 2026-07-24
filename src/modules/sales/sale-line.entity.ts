@@ -30,6 +30,19 @@ export class SaleLine extends BaseEntity {
   @Column({ type: 'numeric', precision: 12, scale: 2, default: 0, transformer: NumericTransformer })
   rate: number;
 
+  /**
+   * Dual-rate (Commission purchases only): the actual rate payable to the
+   * supplier. Null = single-rate line, supplier settled at `rate`. The gap
+   * between `rate` (customer) and this is the agent's confidential margin —
+   * visible/editable only by the Org Admin.
+   */
+  @Column({ name: 'supplier_rate', type: 'numeric', precision: 12, scale: 2, nullable: true, transformer: NumericTransformer })
+  supplierRate: number | null;
+
+  /** Supplier-basis gross (base × supplierRate). Null = same as grossAmount. */
+  @Column({ name: 'supplier_gross_amount', type: 'numeric', precision: 14, scale: 2, nullable: true, transformer: NumericTransformer })
+  supplierGrossAmount: number | null;
+
   @Column({ name: 'commission_pct', type: 'numeric', precision: 6, scale: 2, default: 0, transformer: NumericTransformer })
   commissionPct: number;
 
