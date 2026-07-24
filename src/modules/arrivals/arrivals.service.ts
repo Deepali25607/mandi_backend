@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { AuthUser } from '@/common/decorators/current-user.decorator';
@@ -7,7 +7,19 @@ import { StockLot } from '@/modules/inventory/stock-lot.entity';
 import { Supplier } from '@/modules/suppliers/supplier.entity';
 import { Arrival } from './arrival.entity';
 import { ArrivalLine } from './arrival-line.entity';
-import { CreateArrivalDto, UpdateArrivalDto } from './dto/arrival.dto';
+import { CreateArrivalDto, PurchaseType, UpdateArrivalDto } from './dto/arrival.dto';
+
+/** Bilty = outright purchase: every line must carry a real rate. */
+function assertRatesForType(
+  purchaseType: PurchaseType,
+  lines: { rate?: number }[],
+): void {
+  if (purchaseType === 'bilty' && lines.some((l) => !(Number(l.rate) > 0))) {
+    throw new BadRequestException(
+      'Rate is required for every item on a Bilty purchase. Enter a rate, or switch the purchase type to Commission.',
+    );
+  }
+}
 
 /** A lot is "used" once anything (a sale/challan) has drawn it down. */
 function lotIsUsed(l: StockLot): boolean {
@@ -90,6 +102,8 @@ export class ArrivalsService {
   async create(user: AuthUser, dto: CreateArrivalDto): Promise<Arrival> {
     const organizationId = user.organizationId!;
     const branchId = user.branchId!;
+    const purchaseType = dto.purchaseType ?? 'bilty';
+    assertRatesForType(purchaseType, dto.lines);
 
     const arrivalId = await this.dataSource.transaction(async (manager) => {
       const arrivalNumber = await this.nextArrivalNumber(manager, organizationId);
@@ -100,6 +114,7 @@ export class ArrivalsService {
           arrivalNumber,
           date: dto.date,
           supplierId: dto.supplierId,
+          purchaseType,
           vehicleNumber: dto.vehicleNumber,
           transportCharges: dto.transportCharges ?? 0,
           notes: dto.notes,
@@ -149,9 +164,17 @@ export class ArrivalsService {
         );
       }
 
+      // Rate rules follow the purchase type the arrival will END UP with —
+      // switching to Bilty is refused while any line lacks a rate.
+      const effectiveType = dto.purchaseType ?? arrival.purchaseType;
+      if (dto.purchaseType !== undefined || dto.lines !== undefined) {
+        assertRatesForType(effectiveType, dto.lines ?? arrival.lines);
+      }
+
       // Scalar patch persisted with a plain UPDATE (never re-saving the loaded
       // entity, so the lines relation is not touched/cascaded).
       const patch: Partial<Arrival> = {};
+      if (dto.purchaseType !== undefined) patch.purchaseType = dto.purchaseType;
       if (dto.date !== undefined) patch.date = dto.date;
       if (dto.vehicleNumber !== undefined) patch.vehicleNumber = dto.vehicleNumber;
       if (dto.transportCharges !== undefined) patch.transportCharges = dto.transportCharges;
@@ -165,7 +188,7 @@ export class ArrivalsService {
           itemId: l.itemId,
           quantity: l.quantity,
           weight: l.weight,
-          rate: l.rate,
+          rate: l.rate ?? 0,
         }));
         await manager.delete(ArrivalLine, { arrivalId: id });
         await manager.delete(StockLot, { arrivalId: id });
@@ -202,7 +225,7 @@ export class ArrivalsService {
     arrival: { id: string; organizationId: string; branchId: string },
     supplierId: string,
     date: string,
-    linesInput: { itemId: string; quantity: number; weight: number; rate: number }[],
+    linesInput: { itemId: string; quantity: number; weight: number; rate?: number }[],
   ): Promise<{ totalQuantity: number; totalWeight: number; totalValue: number }> {
     const organizationId = arrival.organizationId;
     // Lot number = <SUPP4>-<qty>-<seq 0001..>: first 4 letters of the supplier
@@ -226,7 +249,8 @@ export class ArrivalsService {
       seqBase += 1;
       const seq = String(seqBase).padStart(4, '0');
       const lotNumber = `${prefix}-${fmtNum(lineDto.quantity)}-${seq}`;
-      const amount = round2(lineDto.weight * lineDto.rate);
+      const rate = lineDto.rate ?? 0;
+      const amount = round2(lineDto.weight * rate);
 
       lines.push(
         manager.create(ArrivalLine, {
@@ -235,7 +259,7 @@ export class ArrivalsService {
           lotNumber,
           quantity: lineDto.quantity,
           weight: lineDto.weight,
-          rate: lineDto.rate,
+          rate,
           amount,
         }),
       );
@@ -248,7 +272,7 @@ export class ArrivalsService {
           itemId: lineDto.itemId,
           supplierId,
           arrivalId: arrival.id,
-          rate: lineDto.rate,
+          rate,
           qtyArrived: lineDto.quantity,
           weightArrived: lineDto.weight,
           qtyAvailable: lineDto.quantity,

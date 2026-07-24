@@ -26,6 +26,12 @@ export class Arrival extends BaseEntity {
   @Column({ name: 'vehicle_number', nullable: true })
   vehicleNumber?: string;
 
+  // How the goods were procured: outright purchase against a bilty (rate is
+  // known and mandatory) or on commission/consignment (rate optional — the
+  // supplier is settled from sales instead).
+  @Column({ name: 'purchase_type', default: 'bilty' })
+  purchaseType: 'bilty' | 'commission';
+
   // Freight/transport paid for this arrival (bhada), captured at entry.
   @Column({ name: 'transport_charges', type: 'numeric', precision: 12, scale: 2, default: 0, transformer: NumericTransformer })
   transportCharges: number;

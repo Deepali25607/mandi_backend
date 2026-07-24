@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { MoreThan, Repository } from 'typeorm';
+import { In, MoreThan, Repository } from 'typeorm';
 import { LotStatus } from '@/common/enums/domain.enum';
 import { Item } from '@/modules/items/item.entity';
+import { Arrival } from '@/modules/arrivals/arrival.entity';
 import { StockLot } from './stock-lot.entity';
 
 export interface StockSummaryRow {
@@ -21,18 +22,35 @@ export class InventoryService {
   constructor(
     @InjectRepository(StockLot) private readonly lots: Repository<StockLot>,
     @InjectRepository(Item) private readonly items: Repository<Item>,
+    @InjectRepository(Arrival) private readonly arrivals: Repository<Arrival>,
   ) {}
 
-  /** List lots for a branch, optionally only those with weight remaining. */
-  listLots(
+  /**
+   * List lots for a branch, optionally only those with weight remaining.
+   * Each lot carries the purchase type of the arrival it came from, so
+   * reports can split Bilty vs Commission stock.
+   */
+  async listLots(
     organizationId: string,
     branchId: string,
     opts: { itemId?: string; availableOnly?: boolean } = {},
-  ): Promise<StockLot[]> {
+  ): Promise<Array<StockLot & { purchaseType: 'bilty' | 'commission' }>> {
     const where: Record<string, unknown> = { organizationId, branchId };
     if (opts.itemId) where.itemId = opts.itemId;
     if (opts.availableOnly) where.weightAvailable = MoreThan(0);
-    return this.lots.find({ where, order: { date: 'DESC', lotNumber: 'DESC' } });
+    const lots = await this.lots.find({ where, order: { date: 'DESC', lotNumber: 'DESC' } });
+
+    const arrivalIds = [...new Set(lots.map((l) => l.arrivalId).filter(Boolean))];
+    const sources = arrivalIds.length
+      ? await this.arrivals.find({
+          where: { id: In(arrivalIds), organizationId },
+          select: { id: true, purchaseType: true },
+        })
+      : [];
+    const typeByArrival = new Map(sources.map((a) => [a.id, a.purchaseType]));
+    return lots.map((l) =>
+      Object.assign(l, { purchaseType: typeByArrival.get(l.arrivalId) ?? ('bilty' as const) }),
+    );
   }
 
   /** Aggregate available stock per item (BRD: item-wise / lot-wise stock). */

@@ -3,6 +3,7 @@ import {
   ArrayMinSize,
   IsArray,
   IsDateString,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -10,6 +11,9 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+
+export const PURCHASE_TYPES = ['bilty', 'commission'] as const;
+export type PurchaseType = (typeof PURCHASE_TYPES)[number];
 
 export class ArrivalLineDto {
   @IsUUID()
@@ -23,9 +27,12 @@ export class ArrivalLineDto {
   @Min(0)
   weight: number;
 
+  // Optional at the DTO level; the service enforces it per purchase type
+  // (mandatory for bilty, optional for commission).
+  @IsOptional()
   @IsNumber()
   @Min(0)
-  rate: number;
+  rate?: number;
 }
 
 export class CreateArrivalDto {
@@ -34,6 +41,10 @@ export class CreateArrivalDto {
 
   @IsUUID()
   supplierId: string;
+
+  @IsOptional()
+  @IsIn(PURCHASE_TYPES)
+  purchaseType?: PurchaseType;
 
   @IsOptional()
   @IsString()
@@ -68,6 +79,10 @@ export class UpdateArrivalDto {
   @IsOptional()
   @IsUUID()
   supplierId?: string;
+
+  @IsOptional()
+  @IsIn(PURCHASE_TYPES)
+  purchaseType?: PurchaseType;
 
   @IsOptional()
   @IsString()
