@@ -72,6 +72,8 @@ export class SalesService {
           customerId: dto.customerId,
           paymentMode: dto.paymentMode ?? PaymentMode.CREDIT,
           notes: dto.notes,
+          otherCharges: dto.otherCharges ?? 0,
+          otherChargesNote: dto.otherChargesNote,
           createdByUserId: user.id,
         }),
       );
@@ -112,6 +114,8 @@ export class SalesService {
       if (dto.customerId !== undefined) patch.customerId = dto.customerId;
       if (dto.paymentMode !== undefined) patch.paymentMode = dto.paymentMode;
       if (dto.notes !== undefined) patch.notes = dto.notes;
+      if (dto.otherCharges !== undefined) patch.otherCharges = dto.otherCharges;
+      if (dto.otherChargesNote !== undefined) patch.otherChargesNote = dto.otherChargesNote;
 
       if (dto.lines !== undefined) {
         // Gate: any finalised supplier bill covering the involved suppliers +

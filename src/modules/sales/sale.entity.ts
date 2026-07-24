@@ -37,6 +37,14 @@ export class Sale extends BaseEntity {
   @Column({ name: 'gross_amount', type: 'numeric', precision: 14, scale: 2, default: 0, transformer: NumericTransformer })
   grossAmount: number;
 
+  /** Extra charges billed to the customer on top of goods (bhada, palledari…). */
+  @Column({ name: 'other_charges', type: 'numeric', precision: 14, scale: 2, default: 0, transformer: NumericTransformer })
+  otherCharges: number;
+
+  /** What the other charges are for — printed on the bill. */
+  @Column({ name: 'other_charges_note', nullable: true })
+  otherChargesNote?: string;
+
   @Column({ name: 'commission_amount', type: 'numeric', precision: 14, scale: 2, default: 0, transformer: NumericTransformer })
   commissionAmount: number;
 

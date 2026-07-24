@@ -92,7 +92,8 @@ export class AccountingService {
     ]);
 
     const entries: Omit<LedgerRow, 'balance'>[] = [
-      ...sales.map((s) => ({ date: s.date, voucher: s.saleNumber, particulars: 'Sale', debit: s.grossAmount, credit: 0 })),
+      // Debit the full billed amount: goods gross + any other charges.
+      ...sales.map((s) => ({ date: s.date, voucher: s.saleNumber, particulars: 'Sale', debit: s.grossAmount + (s.otherCharges ?? 0), credit: 0 })),
       ...receipts.map((r) => ({ date: r.date, voucher: r.collectionNumber, particulars: `Receipt (${r.paymentMode})`, debit: 0, credit: r.amount })),
     ].sort((a, b) => a.date.localeCompare(b.date));
 

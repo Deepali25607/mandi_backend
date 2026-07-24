@@ -9,6 +9,7 @@ import {
   IsString,
   IsUUID,
   Max,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -62,6 +63,17 @@ export class CreateSaleDto {
   @IsString()
   notes?: string;
 
+  /** Extra charges billed to the customer (bhada, palledari…). */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  otherCharges?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  otherChargesNote?: string;
+
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
@@ -90,6 +102,16 @@ export class UpdateSaleDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  otherCharges?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  otherChargesNote?: string;
 
   @IsOptional()
   @IsArray()

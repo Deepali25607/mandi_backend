@@ -193,7 +193,8 @@ export class OutstandingService {
     const rows = await this.sales
       .createQueryBuilder('s')
       .select('s.customer_id', 'customerId')
-      .addSelect('SUM(s.gross_amount)', 'gross')
+      // The customer owes goods gross PLUS any other charges on the bill.
+      .addSelect('SUM(s.gross_amount + s.other_charges)', 'gross')
       .where('s.organization_id = :organizationId', { organizationId })
       .andWhere('s.payment_mode = :mode', { mode: PaymentMode.CREDIT })
       .groupBy('s.customer_id')
