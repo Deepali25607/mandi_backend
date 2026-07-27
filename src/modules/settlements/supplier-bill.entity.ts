@@ -39,6 +39,14 @@ export class SupplierBill extends BaseEntity {
   @Column({ name: 'to_date', type: 'date' })
   toDate: string;
 
+  /** When set, this bill settles only the given item's lots (item-wise settlement). */
+  @Column({ name: 'item_id', type: 'uuid', nullable: true })
+  itemId: string | null;
+
+  /** When set, this bill settles a single lot (lot-wise settlement). */
+  @Column({ name: 'lot_id', type: 'uuid', nullable: true })
+  lotId: string | null;
+
   @Column({ name: 'gross_sales', type: 'numeric', precision: 14, scale: 2, default: 0, transformer: NumericTransformer })
   grossSales: number;
 

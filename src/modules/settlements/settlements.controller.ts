@@ -19,7 +19,7 @@ export class SettlementsController {
   @Roles(Role.ACCOUNTANT, Role.ORG_ADMIN)
   @Post('bills/preview')
   preview(@CurrentUser('organizationId') orgId: string, @Body() dto: PreviewBillDto) {
-    return this.settlements.previewBill(orgId, dto.supplierId, dto.fromDate, dto.toDate);
+    return this.settlements.previewBill(orgId, dto.supplierId, dto.fromDate, dto.toDate, dto.itemId, dto.lotId);
   }
 
   @Get('bills')

@@ -16,13 +16,28 @@ export interface SupplierSalesAgg {
   saleLineCount: number;
 }
 
-/** Sales aggregate plus the auto-deducted transport for a settlement preview. */
+/** Sold quantities per lot — shows exactly which lots a settlement covers. */
+export interface LotBreakdownRow {
+  lotId: string;
+  lotNumber: string;
+  itemId: string;
+  qty: number;
+  weight: number;
+  gross: number;
+  net: number;
+  lines: number;
+}
+
+/** Sales aggregate plus transport + the lot-wise detail for a settlement preview. */
 export interface SupplierBillPreview extends SupplierSalesAgg {
   transport: number;
+  lots: LotBreakdownRow[];
 }
 
 interface CreateBillInput {
   supplierId: string;
+  itemId?: string;
+  lotId?: string;
   fromDate: string;
   toDate: string;
   date: string;
@@ -74,6 +89,8 @@ export class SettlementsService {
     supplierId: string,
     fromDate?: string,
     toDate?: string,
+    itemId?: string,
+    lotId?: string,
   ): Promise<SupplierSalesAgg> {
     const qb = this.saleLines
       .createQueryBuilder('sl')
@@ -91,6 +108,8 @@ export class SettlementsService {
     if (fromDate && toDate) {
       qb.andWhere('s.date BETWEEN :fromDate AND :toDate', { fromDate, toDate });
     }
+    if (itemId) qb.andWhere('sl.item_id = :itemId', { itemId });
+    if (lotId) qb.andWhere('sl.lot_id = :lotId', { lotId });
     const raw = await qb.getRawOne<{
       gross: string; commission: string; marketFee: string; net: string; cnt: string;
     }>();
@@ -117,20 +136,84 @@ export class SettlementsService {
     return new Map(rows.map((r) => [r.supplierId, parseFloat(r.net)]));
   }
 
-  async previewBill(organizationId: string, supplierId: string, fromDate: string, toDate: string): Promise<SupplierBillPreview> {
-    const [agg, transport] = await Promise.all([
-      this.aggregateSupplierSales(organizationId, supplierId, fromDate, toDate),
-      this.transportForSupplier(organizationId, supplierId, fromDate, toDate),
+  /**
+   * Per-lot sold figures for a settlement preview, so the user sees exactly
+   * which lots the bill will cover. Supplier-basis amounts (dual-rate safe).
+   */
+  async lotBreakdown(
+    organizationId: string,
+    supplierId: string,
+    fromDate: string,
+    toDate: string,
+    itemId?: string,
+    lotId?: string,
+  ): Promise<LotBreakdownRow[]> {
+    const qb = this.saleLines
+      .createQueryBuilder('sl')
+      .innerJoin('stock_lots', 'lot', 'lot.id = sl.lot_id')
+      .innerJoin('sales', 's', 's.id = sl.sale_id')
+      .select('lot.id', 'lotId')
+      .addSelect('lot.lot_number', 'lotNumber')
+      .addSelect('sl.item_id', 'itemId')
+      .addSelect('COALESCE(SUM(sl.quantity),0)', 'qty')
+      .addSelect('COALESCE(SUM(sl.weight),0)', 'weight')
+      .addSelect('COALESCE(SUM(COALESCE(sl.supplier_gross_amount, sl.gross_amount)),0)', 'gross')
+      .addSelect('COALESCE(SUM(sl.net_amount),0)', 'net')
+      .addSelect('COUNT(sl.id)', 'lines')
+      .where('s.organization_id = :organizationId', { organizationId })
+      .andWhere('lot.supplier_id = :supplierId', { supplierId })
+      .andWhere('s.date BETWEEN :fromDate AND :toDate', { fromDate, toDate })
+      .groupBy('lot.id')
+      .addGroupBy('lot.lot_number')
+      .addGroupBy('sl.item_id')
+      .orderBy('lot.lot_number', 'ASC');
+    if (itemId) qb.andWhere('sl.item_id = :itemId', { itemId });
+    if (lotId) qb.andWhere('sl.lot_id = :lotId', { lotId });
+    const rows = await qb.getRawMany<{
+      lotId: string; lotNumber: string; itemId: string;
+      qty: string; weight: string; gross: string; net: string; lines: string;
+    }>();
+    return rows.map((r) => ({
+      lotId: r.lotId,
+      lotNumber: r.lotNumber,
+      itemId: r.itemId,
+      qty: round2(parseFloat(r.qty)),
+      weight: round2(parseFloat(r.weight)),
+      gross: round2(parseFloat(r.gross)),
+      net: round2(parseFloat(r.net)),
+      lines: parseInt(r.lines, 10),
+    }));
+  }
+
+  async previewBill(
+    organizationId: string,
+    supplierId: string,
+    fromDate: string,
+    toDate: string,
+    itemId?: string,
+    lotId?: string,
+  ): Promise<SupplierBillPreview> {
+    const [agg, transport, lots] = await Promise.all([
+      this.aggregateSupplierSales(organizationId, supplierId, fromDate, toDate, itemId, lotId),
+      // Transport belongs to a whole arrival (often several items/lots), so it
+      // is only auto-deducted on all-items settlements — an item/lot-wise bill
+      // would otherwise deduct the same bhada several times.
+      itemId || lotId
+        ? Promise.resolve(0)
+        : this.transportForSupplier(organizationId, supplierId, fromDate, toDate),
+      this.lotBreakdown(organizationId, supplierId, fromDate, toDate, itemId, lotId),
     ]);
-    return { ...agg, transport };
+    return { ...agg, transport, lots };
   }
 
   async createBill(user: AuthUser, dto: CreateBillInput): Promise<SupplierBill> {
     const organizationId = user.organizationId!;
     const [agg, transport] = await Promise.all([
-      this.aggregateSupplierSales(organizationId, dto.supplierId, dto.fromDate, dto.toDate),
-      // Transport is always auto-deducted from the supplier's arrivals in the period.
-      this.transportForSupplier(organizationId, dto.supplierId, dto.fromDate, dto.toDate),
+      this.aggregateSupplierSales(organizationId, dto.supplierId, dto.fromDate, dto.toDate, dto.itemId, dto.lotId),
+      // Same transport rule as the preview: auto-deduct only on all-items bills.
+      dto.itemId || dto.lotId
+        ? Promise.resolve(0)
+        : this.transportForSupplier(organizationId, dto.supplierId, dto.fromDate, dto.toDate),
     ]);
     const labour = dto.labourCharges ?? 0;
     const crate = dto.crateCharges ?? 0;
@@ -145,6 +228,8 @@ export class SettlementsService {
         billNumber,
         date: dto.date,
         supplierId: dto.supplierId,
+        itemId: dto.itemId ?? null,
+        lotId: dto.lotId ?? null,
         fromDate: dto.fromDate,
         toDate: dto.toDate,
         grossSales: agg.gross,

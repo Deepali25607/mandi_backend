@@ -13,6 +13,16 @@ export class PreviewBillDto {
   @IsUUID()
   supplierId: string;
 
+  /** Optional: settle only this item's lots (else all of the supplier's items). */
+  @IsOptional()
+  @IsUUID()
+  itemId?: string;
+
+  /** Optional: settle a single lot (lot-wise settlement). */
+  @IsOptional()
+  @IsUUID()
+  lotId?: string;
+
   @IsDateString()
   fromDate: string;
 
@@ -23,6 +33,14 @@ export class PreviewBillDto {
 export class CreateBillDto {
   @IsUUID()
   supplierId: string;
+
+  @IsOptional()
+  @IsUUID()
+  itemId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  lotId?: string;
 
   @IsDateString()
   fromDate: string;
