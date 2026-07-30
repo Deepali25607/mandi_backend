@@ -8,6 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { AuthUser } from '@/common/decorators/current-user.decorator';
+import { nextDocNumber } from '@/common/utils/doc-number.util';
 import { Role } from '@/common/enums/role.enum';
 import { LotStatus, PaymentMode } from '@/common/enums/domain.enum';
 import { Item } from '@/modules/items/item.entity';
@@ -401,12 +402,8 @@ export class SalesService {
     await manager.save(lot);
   }
 
-  private async nextSaleNumber(
-    manager: EntityManager,
-    organizationId: string,
-  ): Promise<string> {
-    const count = await manager.count(Sale, { where: { organizationId } });
-    return `SALE-${String(count + 1).padStart(4, '0')}`;
+  private nextSaleNumber(manager: EntityManager, organizationId: string): Promise<string> {
+    return nextDocNumber(manager, 'sales', 'sale_number', 'SALE', organizationId);
   }
 }
 

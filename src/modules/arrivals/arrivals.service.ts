@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { AuthUser } from '@/common/decorators/current-user.decorator';
+import { nextDocNumber } from '@/common/utils/doc-number.util';
 import { LotStatus } from '@/common/enums/domain.enum';
 import { StockLot } from '@/modules/inventory/stock-lot.entity';
 import { Supplier } from '@/modules/suppliers/supplier.entity';
@@ -309,12 +310,8 @@ export class ArrivalsService {
     return max;
   }
 
-  private async nextArrivalNumber(
-    manager: EntityManager,
-    organizationId: string,
-  ): Promise<string> {
-    const count = await manager.count(Arrival, { where: { organizationId } });
-    return `ARR-${String(count + 1).padStart(4, '0')}`;
+  private nextArrivalNumber(manager: EntityManager, organizationId: string): Promise<string> {
+    return nextDocNumber(manager, 'arrivals', 'arrival_number', 'ARR', organizationId);
   }
 }
 

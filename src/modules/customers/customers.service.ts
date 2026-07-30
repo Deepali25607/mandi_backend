@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ILike, Repository } from 'typeorm';
+import { nextDocNumber } from '@/common/utils/doc-number.util';
 import { Customer } from './customer.entity';
 import { CreateCustomerDto, UpdateCustomerDto } from './dto/customer.dto';
 
@@ -46,8 +47,7 @@ export class CustomersService {
     return this.customers.save(customer);
   }
 
-  private async nextCode(organizationId: string): Promise<string> {
-    const count = await this.customers.count({ where: { organizationId } });
-    return `CUST-${String(count + 1).padStart(4, '0')}`;
+  private nextCode(organizationId: string): Promise<string> {
+    return nextDocNumber(this.customers.manager, 'customers', 'code', 'CUST', organizationId);
   }
 }

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { AuthUser } from '@/common/decorators/current-user.decorator';
+import { nextDocNumber } from '@/common/utils/doc-number.util';
 import { LotStatus } from '@/common/enums/domain.enum';
 import { StockLot } from '@/modules/inventory/stock-lot.entity';
 import { Challan, ChallanStatus } from './challan.entity';
@@ -138,9 +139,8 @@ export class ChallansService {
     await manager.save(lot);
   }
 
-  private async nextNumber(manager: EntityManager, organizationId: string): Promise<string> {
-    const count = await manager.count(Challan, { where: { organizationId } });
-    return `CH-${String(count + 1).padStart(4, '0')}`;
+  private nextNumber(manager: EntityManager, organizationId: string): Promise<string> {
+    return nextDocNumber(manager, 'challans', 'challan_number', 'CH', organizationId);
   }
 }
 

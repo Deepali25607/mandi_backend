@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuthUser } from '@/common/decorators/current-user.decorator';
+import { nextDocNumber } from '@/common/utils/doc-number.util';
 import { Adjustment, AdjustmentType } from './adjustment.entity';
 
 interface CreateAdjustmentInput {
@@ -69,8 +70,7 @@ export class AdjustmentsService {
     });
   }
 
-  private async nextNumber(organizationId: string): Promise<string> {
-    const count = await this.repo.count({ where: { organizationId } });
-    return `ADJ-${String(count + 1).padStart(4, '0')}`;
+  private nextNumber(organizationId: string): Promise<string> {
+    return nextDocNumber(this.repo.manager, 'adjustments', 'adjustment_number', 'ADJ', organizationId);
   }
 }

@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ILike, Repository } from 'typeorm';
+import { nextDocNumber } from '@/common/utils/doc-number.util';
 import { Adjustment } from '@/modules/adjustments/adjustment.entity';
 import { ArrivalLine } from '@/modules/arrivals/arrival-line.entity';
 import { ChallanLine } from '@/modules/challans/challan-line.entity';
@@ -85,8 +86,7 @@ export class ItemsService {
     return { deleted: true };
   }
 
-  private async nextCode(organizationId: string): Promise<string> {
-    const count = await this.items.count({ where: { organizationId } });
-    return `ITM-${String(count + 1).padStart(4, '0')}`;
+  private nextCode(organizationId: string): Promise<string> {
+    return nextDocNumber(this.items.manager, 'items', 'code', 'ITM', organizationId);
   }
 }

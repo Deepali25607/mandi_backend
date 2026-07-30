@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, FindOptionsWhere, Repository } from 'typeorm';
 import { AuthUser } from '@/common/decorators/current-user.decorator';
+import { nextDocNumber } from '@/common/utils/doc-number.util';
 import { PaymentMode } from '@/common/enums/domain.enum';
 import { DEFAULT_EXPENSE_CATEGORIES, Expense, ExpenseCategory } from './expense.entity';
 
@@ -65,8 +66,7 @@ export class ExpensesService {
     return [...seen.values()].sort((a, b) => a.localeCompare(b));
   }
 
-  private async nextNumber(organizationId: string): Promise<string> {
-    const count = await this.repo.count({ where: { organizationId } });
-    return `EXP-${String(count + 1).padStart(4, '0')}`;
+  private nextNumber(organizationId: string): Promise<string> {
+    return nextDocNumber(this.repo.manager, 'expenses', 'expense_number', 'EXP', organizationId);
   }
 }

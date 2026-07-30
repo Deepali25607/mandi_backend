@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, Repository } from 'typeorm';
 import { AuthUser } from '@/common/decorators/current-user.decorator';
+import { nextDocNumber } from '@/common/utils/doc-number.util';
 import { PaymentMode } from '@/common/enums/domain.enum';
 import { SaleLine } from '@/modules/sales/sale-line.entity';
 import { Arrival } from '@/modules/arrivals/arrival.entity';
@@ -344,14 +345,12 @@ export class SettlementsService {
     return new Map(rows.map((r) => [r.supplierId, parseFloat(r.charges)]));
   }
 
-  private async nextBillNumber(organizationId: string): Promise<string> {
-    const count = await this.bills.count({ where: { organizationId } });
-    return `SB-${String(count + 1).padStart(4, '0')}`;
+  private nextBillNumber(organizationId: string): Promise<string> {
+    return nextDocNumber(this.bills.manager, 'supplier_bills', 'bill_number', 'SB', organizationId);
   }
 
-  private async nextPaymentNumber(organizationId: string): Promise<string> {
-    const count = await this.payments.count({ where: { organizationId } });
-    return `SP-${String(count + 1).padStart(4, '0')}`;
+  private nextPaymentNumber(organizationId: string): Promise<string> {
+    return nextDocNumber(this.payments.manager, 'supplier_payments', 'payment_number', 'SP', organizationId);
   }
 }
 
