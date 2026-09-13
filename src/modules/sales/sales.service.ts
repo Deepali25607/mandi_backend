@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { AuthUser } from '@/common/decorators/current-user.decorator';
 import { nextDocNumber } from '@/common/utils/doc-number.util';
 import { Role } from '@/common/enums/role.enum';
@@ -14,7 +14,6 @@ import { LotStatus, PaymentMode } from '@/common/enums/domain.enum';
 import { Item } from '@/modules/items/item.entity';
 import { StockLot } from '@/modules/inventory/stock-lot.entity';
 import { Arrival } from '@/modules/arrivals/arrival.entity';
-import { SupplierBill } from '@/modules/settlements/supplier-bill.entity';
 import { Sale } from './sale.entity';
 import { SaleLine } from './sale-line.entity';
 import { CreateSaleDto, SaleLineDto, UpdateSaleDto } from './dto/sale.dto';
@@ -239,7 +238,8 @@ export class SalesService {
 
     for (const lineDto of linesDto) {
       const item = itemMap.get(lineDto.itemId)!;
-      const commissionPct = lineDto.commissionPct ?? item.defaultCommissionPct ?? 0;
+      // Fixed mandi defaults when the caller omits them: 7% commission, 0% market fee.
+      const commissionPct = lineDto.commissionPct ?? item.defaultCommissionPct ?? 7;
       const marketFeePct = lineDto.marketFeePct ?? item.defaultMarketFeePct ?? 0;
 
       // Rate applies to weight when present, else to quantity (per-unit sale).
@@ -343,36 +343,19 @@ export class SalesService {
   }
 
   /**
-   * True when a finalised supplier bill covers any supplier of the sale's lots
-   * (old + proposed new) on the effective sale date — meaning the sale's figures
-   * are already frozen into a settlement snapshot.
+   * True when any of the sale's lines has already been paid out on a supplier
+   * settlement (`sale_lines.supplier_bill_id` is stamped when a bill is
+   * generated). Such lines are frozen into the bill, so the items can't change.
+   * Header details (date, customer, payment mode, charges) stay editable.
    */
   private async isSettled(
-    manager: EntityManager,
-    organizationId: string,
+    _manager: EntityManager,
+    _organizationId: string,
     sale: Sale,
-    newLines: SaleLineDto[],
-    effectiveDate: string,
+    _newLines: SaleLineDto[],
+    _effectiveDate: string,
   ): Promise<boolean> {
-    const lotIds = [
-      ...new Set(
-        [
-          ...sale.lines.map((l) => l.lotId),
-          ...newLines.map((l) => l.lotId ?? null),
-        ].filter((x): x is string => !!x),
-      ),
-    ];
-    if (lotIds.length === 0) return false;
-
-    const lots = await manager.find(StockLot, { where: { id: In(lotIds), organizationId } });
-    const supplierIds = [...new Set(lots.map((l) => l.supplierId))];
-    if (supplierIds.length === 0) return false;
-
-    const bills = await manager.find(SupplierBill, {
-      where: { organizationId, supplierId: In(supplierIds) },
-    });
-    const dates = [...new Set([sale.date, effectiveDate])];
-    return bills.some((b) => dates.some((d) => b.fromDate <= d && d <= b.toDate));
+    return (sale.lines ?? []).some((l) => l.supplierBillId != null);
   }
 
   private async drawDownLot(

@@ -148,13 +148,13 @@ async function seed() {
   // --- Master data: Items ---
   const itemRepo = AppDataSource.getRepository(Item);
   const itemDefs = [
-    { code: 'ITM-0001', name: 'Tomato', category: ItemCategory.VEGETABLES, commission: 6, fee: 1 },
-    { code: 'ITM-0002', name: 'Onion', category: ItemCategory.VEGETABLES, commission: 6, fee: 1 },
-    { code: 'ITM-0003', name: 'Potato', category: ItemCategory.VEGETABLES, commission: 5, fee: 1 },
-    { code: 'ITM-0004', name: 'Cauliflower', category: ItemCategory.VEGETABLES, commission: 7, fee: 1 },
-    { code: 'ITM-0005', name: 'Apple', category: ItemCategory.FRUITS, commission: 8, fee: 1.5 },
-    { code: 'ITM-0006', name: 'Banana', category: ItemCategory.FRUITS, commission: 7, fee: 1.5 },
-    { code: 'ITM-0007', name: 'Marigold', category: ItemCategory.FLOWERS, commission: 10, fee: 2 },
+    { code: 'ITM-0001', name: 'Tomato', category: ItemCategory.VEGETABLES, commission: 7, fee: 0, unitWeight: 25 },
+    { code: 'ITM-0002', name: 'Onion', category: ItemCategory.VEGETABLES, commission: 7, fee: 0, unitWeight: 40 },
+    { code: 'ITM-0003', name: 'Potato', category: ItemCategory.VEGETABLES, commission: 7, fee: 0, unitWeight: 40 },
+    { code: 'ITM-0004', name: 'Cauliflower', category: ItemCategory.VEGETABLES, commission: 7, fee: 0, unitWeight: 30 },
+    { code: 'ITM-0005', name: 'Apple', category: ItemCategory.FRUITS, commission: 7, fee: 0, unitWeight: 20 },
+    { code: 'ITM-0006', name: 'Banana', category: ItemCategory.FRUITS, commission: 7, fee: 0, unitWeight: 25 },
+    { code: 'ITM-0007', name: 'Marigold', category: ItemCategory.FLOWERS, commission: 7, fee: 0, unitWeight: 10 },
   ];
   for (const def of itemDefs) {
     const existing = await itemRepo.findOne({ where: { organizationId: org.id, code: def.code } });
@@ -166,6 +166,7 @@ async function seed() {
       unit: 'kg',
       defaultCommissionPct: def.commission,
       defaultMarketFeePct: def.fee,
+      standardUnitWeightKg: def.unitWeight,
       isActive: true,
     };
     if (existing) await itemRepo.update(existing.id, data);

@@ -50,4 +50,12 @@ export class StockLot extends BaseEntity {
 
   @Column({ type: 'date' })
   date: string;
+
+  /**
+   * Settlement bill that deducted this lot's share of the arrival freight
+   * (bhada). Freight is charged to the supplier exactly once — on the first
+   * bill that settles sales from the lot.
+   */
+  @Column({ name: 'freight_bill_id', type: 'uuid', nullable: true })
+  freightBillId: string | null;
 }

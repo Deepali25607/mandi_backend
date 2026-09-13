@@ -30,8 +30,19 @@ export class SupplierPayment extends BaseEntity {
   @Column({ name: 'payment_mode', type: 'enum', enum: PaymentMode, default: PaymentMode.CASH })
   paymentMode: PaymentMode;
 
+  /**
+   * Bill this payment settles. For an advance this is null until the lot is
+   * settled, then it is stamped with the bill the advance was adjusted on.
+   */
   @Column({ name: 'bill_id', type: 'uuid', nullable: true })
   billId: string | null;
+
+  /**
+   * Advance payment: the stock lot (arrival line) this money was paid against.
+   * When that lot is settled, the advance is adjusted on the bill date-wise.
+   */
+  @Column({ name: 'lot_id', type: 'uuid', nullable: true })
+  lotId: string | null;
 
   @Column({ nullable: true })
   reference?: string;

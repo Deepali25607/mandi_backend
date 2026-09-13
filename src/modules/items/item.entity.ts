@@ -29,7 +29,7 @@ export class Item extends BaseEntity {
     type: 'numeric',
     precision: 6,
     scale: 2,
-    default: 0,
+    default: 7,
     transformer: NumericTransformer,
   })
   defaultCommissionPct: number;
@@ -43,6 +43,21 @@ export class Item extends BaseEntity {
     transformer: NumericTransformer,
   })
   defaultMarketFeePct: number;
+
+  /**
+   * Standard weight of one unit/bag of this item in kg (mandi packing size,
+   * e.g. 40 for onion/potato, 25 for tomato). Sale Entry uses it to pre-fill
+   * Weight = Qty × this, and to convert a "per bag" rate to the stored ₹/kg.
+   */
+  @Column({
+    name: 'standard_unit_weight_kg',
+    type: 'numeric',
+    precision: 10,
+    scale: 2,
+    default: 40,
+    transformer: NumericTransformer,
+  })
+  standardUnitWeightKg: number;
 
   @Column({ name: 'is_active', default: true })
   isActive: boolean;

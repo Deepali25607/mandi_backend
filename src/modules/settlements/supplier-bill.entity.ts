@@ -72,6 +72,15 @@ export class SupplierBill extends BaseEntity {
   @Column({ name: 'net_payable', type: 'numeric', precision: 14, scale: 2, default: 0, transformer: NumericTransformer })
   netPayable: number;
 
+  /**
+   * Advance payments (already recorded against this bill's lots) adjusted on
+   * this bill, oldest first. Remaining to pay = netPayable − advanceAdjusted.
+   * netPayable itself stays the true dues so outstanding (bills − payments)
+   * never double-counts the advance.
+   */
+  @Column({ name: 'advance_adjusted', type: 'numeric', precision: 14, scale: 2, default: 0, transformer: NumericTransformer })
+  advanceAdjusted: number;
+
   @Column({ type: 'enum', enum: SupplierBillStatus, default: SupplierBillStatus.FINALISED })
   status: SupplierBillStatus;
 

@@ -43,6 +43,13 @@ export class CreateItemDto {
   @Max(100)
   defaultMarketFeePct?: number;
 
+  /** Standard weight (kg) of one unit/bag; drives Qty→Weight and per-bag rate conversion. */
+  @IsOptional()
+  @IsNumber()
+  @Min(0.01)
+  @Max(100000)
+  standardUnitWeightKg?: number;
+
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;

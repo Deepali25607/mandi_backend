@@ -70,6 +70,8 @@ export class CreatePaymentDto {
 
   @IsOptional() @IsEnum(PaymentMode) paymentMode?: PaymentMode;
   @IsOptional() @IsUUID() billId?: string;
+  /** Advance against a specific stock lot (arrival line). */
+  @IsOptional() @IsUUID() lotId?: string;
   @IsOptional() @IsString() reference?: string;
   @IsOptional() @IsString() notes?: string;
 }

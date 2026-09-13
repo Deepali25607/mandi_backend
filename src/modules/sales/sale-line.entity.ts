@@ -60,4 +60,13 @@ export class SaleLine extends BaseEntity {
 
   @Column({ name: 'net_amount', type: 'numeric', precision: 14, scale: 2, default: 0, transformer: NumericTransformer })
   netAmount: number;
+
+  /**
+   * Settlement bill that paid the supplier for this line. Null = not yet
+   * settled. Stamped when a bill is generated so the same sale can never be
+   * settled twice, whatever scope/period the next bill uses.
+   */
+  @Index()
+  @Column({ name: 'supplier_bill_id', type: 'uuid', nullable: true })
+  supplierBillId: string | null;
 }
