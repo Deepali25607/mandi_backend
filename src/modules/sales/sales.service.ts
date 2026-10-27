@@ -26,12 +26,21 @@ export class SalesService {
     private readonly dataSource: DataSource,
   ) {}
 
-  list(organizationId: string, branchId: string): Promise<Sale[]> {
+  /**
+   * Sale bills for a branch, newest first. Defaults to the latest 100 (enough for
+   * the Recent Sales panel and Billing). The All Sales screen passes `all` to pull
+   * every historical bill, or a custom `limit`.
+   */
+  list(
+    organizationId: string,
+    branchId: string,
+    opts?: { all?: boolean; limit?: number },
+  ): Promise<Sale[]> {
     return this.sales.find({
       where: { organizationId, branchId },
       relations: { lines: true },
       order: { date: 'DESC', createdAt: 'DESC' },
-      take: 100,
+      take: opts?.all ? undefined : opts?.limit && opts.limit > 0 ? opts.limit : 100,
     });
   }
 

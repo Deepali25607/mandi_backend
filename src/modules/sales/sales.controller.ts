@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import {
   AuthUser,
   CurrentUser,
@@ -30,8 +30,15 @@ export class SalesController {
   constructor(private readonly sales: SalesService) {}
 
   @Get()
-  async list(@CurrentUser() user: AuthUser) {
-    const sales = await this.sales.list(user.organizationId!, user.branchId!);
+  async list(
+    @CurrentUser() user: AuthUser,
+    @Query('all') all?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const sales = await this.sales.list(user.organizationId!, user.branchId!, {
+      all: all === 'true' || all === '1',
+      limit: limit ? Number(limit) : undefined,
+    });
     return sales.map((s) => hideSupplierRate(s, user.role));
   }
 
